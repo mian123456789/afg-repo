@@ -293,6 +293,57 @@ const loadLoginAttempts = (): Record<string, LoginAttempt> => {
   }
 }
 
+type AppSession = {
+  authenticated: boolean
+  currentUserId: string | null
+  role: Role
+  page: Page
+}
+
+const appSessionStorageKey = 'afg-app-session'
+
+const signedOutSession: AppSession = {
+  authenticated: false,
+  currentUserId: null,
+  role: 'Owner',
+  page: 'Dashboard',
+}
+
+const loadAppSession = (): AppSession => {
+  try {
+    const saved = window.localStorage.getItem(appSessionStorageKey)
+    const parsed = saved ? JSON.parse(saved) as Partial<AppSession> : null
+    if (!parsed?.authenticated || !parsed.currentUserId) return signedOutSession
+    const account = loadUserAccounts().find((user) => user.id === parsed.currentUserId && user.status === 'Active')
+    if (!account) return signedOutSession
+    const allowedPages = account.role === 'Owner' ? permissionOptions : loadRolePermissions().Admin
+    if (!allowedPages.length) return signedOutSession
+    const restoredPage = parsed.page && allowedPages.includes(parsed.page)
+      ? parsed.page
+      : allowedPages.includes('Dashboard') ? 'Dashboard' : allowedPages[0]
+    return {
+      authenticated: true,
+      currentUserId: account.id,
+      role: account.role,
+      page: restoredPage,
+    }
+  } catch {
+    return signedOutSession
+  }
+}
+
+const persistAppSession = (session: AppSession) => {
+  try {
+    if (!session.authenticated || !session.currentUserId) {
+      window.localStorage.removeItem(appSessionStorageKey)
+      return
+    }
+    window.localStorage.setItem(appSessionStorageKey, JSON.stringify(session))
+  } catch {
+    // The login screen remains available when a browser blocks saved sessions.
+  }
+}
+
 const defaultLogo = '/afg-logo.jpg'
 
 const companySettingsStorageKey = 'afg-company-settings'
@@ -368,114 +419,71 @@ const persistCompanySettings = (settings: CompanySettings) => {
   }
 }
 
-const initialProducts: Product[] = [
-  {
-    id: 'P-1001',
-    description: 'Premium Cotton T-Shirt',
-    article: 'AFG101',
-    barcode: '8901001',
-    category: 'T-Shirts',
-    unit: 'Pc',
-    cost: 620,
-    rate: 850,
-    stock: 42,
-    minStock: 10,
-    status: 'Active',
-    created: dateText,
-  },
-  {
-    id: 'P-1002',
-    description: 'Classic Polo Shirt',
-    article: 'AFG102',
-    barcode: '8901002',
-    category: 'Polo Shirts',
-    unit: 'Pc',
-    cost: 880,
-    rate: 1200,
-    stock: 18,
-    minStock: 8,
-    status: 'Active',
-    created: dateText,
-  },
-  {
-    id: 'P-1003',
-    description: 'Fleece Hoodie',
-    article: 'AFG221',
-    barcode: '8901221',
-    category: 'Hoodies',
-    unit: 'Pc',
-    cost: 1650,
-    rate: 2350,
-    stock: 6,
-    minStock: 10,
-    status: 'Active',
-    created: dateText,
-  },
-  {
-    id: 'P-1004',
-    description: 'Twill Trouser',
-    article: 'AFG330',
-    barcode: '8901330',
-    category: 'Trousers',
-    unit: 'Pc',
-    cost: 1450,
-    rate: 2100,
-    stock: 0,
-    minStock: 7,
-    status: 'Active',
-    created: dateText,
-  },
-]
+const initialProducts: Product[] = []
+const initialCustomers: Customer[] = []
+const initialExpenses: Expense[] = []
+const initialStaff: StaffMember[] = []
+const initialAttendance: AttendanceRecord[] = []
 
-const initialCustomers: Customer[] = [
-  {
-    name: 'Walk-in Customer',
-    phone: '0300-0000000',
-    address: 'Counter sale',
-    totalPurchases: 0,
-    totalPaid: 0,
-    lastPurchase: '-',
-  },
-  {
-    name: 'Ahmed Traders',
-    phone: '0321-5551020',
-    address: 'Faisalabad',
-    totalPurchases: 24800,
-    totalPaid: 20000,
-    lastPurchase: dateText,
-  },
-]
+type BusinessData = {
+  products: Product[]
+  customers: Customer[]
+  expenses: Expense[]
+  staff: StaffMember[]
+  attendance: AttendanceRecord[]
+  pieceRateEntries: PieceRateEntry[]
+  salaryAdvances: SalaryAdvance[]
+  sales: Sale[]
+  invoiceSequence: number
+}
 
-const initialExpenses: Expense[] = [
-  {
-    id: 'EXP-001',
-    date: dateText,
-    description: 'Factory utility bill',
-    amount: 7800,
-    paymentMethod: 'Bank',
-    addedBy: 'Admin User',
-    notes: 'July cycle',
-  },
-  {
-    id: 'EXP-002',
-    date: dateText,
-    description: 'Dispatch van fuel',
-    amount: 2400,
-    paymentMethod: 'Cash',
-    addedBy: 'Admin User',
-    notes: 'Local delivery',
-  },
-]
+const businessDataStorageKey = 'afg-business-data'
 
-const initialStaff: StaffMember[] = [
-  { id: 'ST-002', name: 'Ayesha Malik', phone: '0300-0000002', department: 'Quality Control', designation: 'Quality Officer', shiftStart: '09:00', shiftEnd: '17:00', salaryAmount: 45000, salaryEnabled: true, salaryMode: 'Monthly', status: 'Active' },
-  { id: 'ST-003', name: 'Bilal Ahmed', phone: '0300-0000003', department: 'Packing', designation: 'Packing Assistant', shiftStart: '09:00', shiftEnd: '17:00', salaryAmount: 38000, salaryEnabled: true, salaryMode: 'Monthly', status: 'Active' },
-]
+const emptyBusinessData: BusinessData = {
+  products: initialProducts,
+  customers: initialCustomers,
+  expenses: initialExpenses,
+  staff: initialStaff,
+  attendance: initialAttendance,
+  pieceRateEntries: [],
+  salaryAdvances: [],
+  sales: [],
+  invoiceSequence: 0,
+}
 
-const initialAttendance: AttendanceRecord[] = [
-  { id: 'ATT-002', staffId: 'ST-002', date: dateText, employee: 'Ayesha Malik', department: 'Quality Control', checkIn: '09:05', checkOut: '-', status: 'Present' },
-  { id: 'ATT-003', staffId: 'ST-003', date: dateText, employee: 'Bilal Ahmed', department: 'Packing', checkIn: '08:55', checkOut: '-', status: 'Present' },
-]
+const loadBusinessData = (): BusinessData => {
+  try {
+    const saved = window.localStorage.getItem(businessDataStorageKey)
+    const parsed = saved ? JSON.parse(saved) as Partial<BusinessData> : null
+    if (parsed && typeof parsed === 'object') {
+      return {
+        products: Array.isArray(parsed.products) ? parsed.products : [],
+        customers: Array.isArray(parsed.customers) ? parsed.customers : [],
+        expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
+        staff: Array.isArray(parsed.staff) ? parsed.staff : [],
+        attendance: Array.isArray(parsed.attendance) ? parsed.attendance : [],
+        pieceRateEntries: Array.isArray(parsed.pieceRateEntries) ? parsed.pieceRateEntries : [],
+        salaryAdvances: Array.isArray(parsed.salaryAdvances) ? parsed.salaryAdvances : [],
+        sales: Array.isArray(parsed.sales) ? parsed.sales : [],
+        invoiceSequence: Number.isFinite(Number(parsed.invoiceSequence))
+          ? Math.max(0, Number(parsed.invoiceSequence))
+          : 0,
+      }
+    }
+  } catch {
+    // Start with an empty workspace when saved business data is unavailable.
+  }
+  return emptyBusinessData
+}
+
+const persistBusinessData = (data: BusinessData) => {
+  try {
+    window.localStorage.setItem(businessDataStorageKey, JSON.stringify(data))
+    return true
+  } catch {
+    return false
+  }
+}
 
 const formatMoney = (value: number, currency = 'PKR') =>
   `${currency === 'PKR' ? 'Rs.' : currency} ${Math.max(0, value).toLocaleString()}`
@@ -623,26 +631,28 @@ const printStaffDirectory = () => {
 }
 
 function App() {
-  const [authenticated, setAuthenticated] = useState(false)
+  const [initialSession] = useState<AppSession>(loadAppSession)
+  const [initialBusinessDataState] = useState<BusinessData>(loadBusinessData)
+  const [authenticated, setAuthenticated] = useState(initialSession.authenticated)
   const [showPassword, setShowPassword] = useState(false)
   const [loginError, setLoginError] = useState('')
   const [loginCredentials, setLoginCredentials] = useState({ identity: '', password: '' })
   const [loginAttempts, setLoginAttempts] = useState<Record<string, LoginAttempt>>(loadLoginAttempts)
-  const [page, setPage] = useState<Page>('Dashboard')
+  const [page, setPage] = useState<Page>(initialSession.page)
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [role, setRole] = useState<Role>('Owner')
+  const [role, setRole] = useState<Role>(initialSession.role)
   const [users, setUsers] = useState<UserAccount[]>(loadUserAccounts)
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
-  const [products, setProducts] = useState<Product[]>(initialProducts)
-  const [customers, setCustomers] = useState<Customer[]>(initialCustomers)
-  const [expenses, setExpenses] = useState<Expense[]>(initialExpenses)
-  const [staff, setStaff] = useState<StaffMember[]>(initialStaff)
-  const [attendance, setAttendance] = useState<AttendanceRecord[]>(initialAttendance)
-  const [pieceRateEntries, setPieceRateEntries] = useState<PieceRateEntry[]>([])
-  const [salaryAdvances, setSalaryAdvances] = useState<SalaryAdvance[]>([])
-  const [sales, setSales] = useState<Sale[]>([])
+  const [currentUserId, setCurrentUserId] = useState<string | null>(initialSession.currentUserId)
+  const [products, setProducts] = useState<Product[]>(initialBusinessDataState.products)
+  const [customers, setCustomers] = useState<Customer[]>(initialBusinessDataState.customers)
+  const [expenses, setExpenses] = useState<Expense[]>(initialBusinessDataState.expenses)
+  const [staff, setStaff] = useState<StaffMember[]>(initialBusinessDataState.staff)
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>(initialBusinessDataState.attendance)
+  const [pieceRateEntries, setPieceRateEntries] = useState<PieceRateEntry[]>(initialBusinessDataState.pieceRateEntries)
+  const [salaryAdvances, setSalaryAdvances] = useState<SalaryAdvance[]>(initialBusinessDataState.salaryAdvances)
+  const [sales, setSales] = useState<Sale[]>(initialBusinessDataState.sales)
   const [rolePermissions, setRolePermissions] = useState<Record<ManagedRole, Page[]>>(loadRolePermissions)
-  const [invoiceSequence, setInvoiceSequence] = useState(0)
+  const [invoiceSequence, setInvoiceSequence] = useState(initialBusinessDataState.invoiceSequence)
   const [settings, setSettings] = useState<CompanySettings>(loadCompanySettings)
 
   const [customerName, setCustomerName] = useState('')
@@ -709,6 +719,28 @@ function App() {
     window.addEventListener('pagehide', saveBeforeLeaving)
     return () => window.removeEventListener('pagehide', saveBeforeLeaving)
   }, [settings])
+
+  useEffect(() => {
+    persistAppSession({ authenticated, currentUserId, role, page })
+  }, [authenticated, currentUserId, role, page])
+
+  useEffect(() => {
+    const businessData = {
+      products,
+      customers,
+      expenses,
+      staff,
+      attendance,
+      pieceRateEntries,
+      salaryAdvances,
+      sales,
+      invoiceSequence,
+    }
+    persistBusinessData(businessData)
+    const saveBeforeLeaving = () => persistBusinessData(businessData)
+    window.addEventListener('pagehide', saveBeforeLeaving)
+    return () => window.removeEventListener('pagehide', saveBeforeLeaving)
+  }, [products, customers, expenses, staff, attendance, pieceRateEntries, salaryAdvances, sales, invoiceSequence])
 
   const invoiceNumber = useMemo(
     () => `${settings.invoicePrefix}-${String(settings.startingNumber + invoiceSequence).padStart(6, '0')}`,
@@ -930,7 +962,14 @@ function App() {
       setAuthenticated(true)
       setLoginError('')
       setLoginCredentials({ identity: '', password: '' })
-      setPage(allowedPages.includes('Dashboard') ? 'Dashboard' : allowedPages[0])
+      const nextPage = allowedPages.includes('Dashboard') ? 'Dashboard' : allowedPages[0]
+      setPage(nextPage)
+      persistAppSession({
+        authenticated: true,
+        currentUserId: account.id,
+        role: account.role,
+        page: nextPage,
+      })
       return
     }
     const failedAttempts = (savedAttempt?.lockedUntil && savedAttempt.lockedUntil <= now ? 0 : savedAttempt?.attempts ?? 0) + 1
@@ -1308,6 +1347,7 @@ function App() {
             notify('Clear or save the current bill before logout.')
             return
           }
+          persistAppSession(signedOutSession)
           setAuthenticated(false)
           setCurrentUserId(null)
           setLoginCredentials({ identity: '', password: '' })
