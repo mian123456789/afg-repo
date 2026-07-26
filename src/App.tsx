@@ -300,6 +300,63 @@ const defaultLogo =
     `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160"><rect width="160" height="160" rx="30" fill="#153B7A"/><path d="M38 115 72 39h17l34 76h-20l-6-15H63l-6 15H38Zm31-31h22L80 57 69 84Z" fill="#fff"/><path d="M48 128h64" stroke="#D5232A" stroke-width="10" stroke-linecap="round"/></svg>`,
   )
 
+const companySettingsStorageKey = 'afg-company-settings'
+
+const defaultCompanySettings: CompanySettings = {
+  logo: defaultLogo,
+  companyName: 'AL-FATEH GARMENTS',
+  businessName: 'AFG UNIT',
+  address: 'Company address from Settings, Pakistan',
+  phone: '+92 300 1234567',
+  whatsapp: '+92 300 1234567',
+  email: 'info@alfatehgarments.com',
+  website: 'www.alfatehgarments.com',
+  ntn: '',
+  strn: '',
+  currency: 'PKR',
+  footerMessage: 'Quality garments, reliable service.',
+  thankYou: 'Thank you for shopping with Al-fateh Garments.',
+  exchangePolicy: 'Exchange within 7 days with original invoice and unused product.',
+  invoicePrefix: 'AFG-INV',
+  startingNumber: 1,
+  defaultPrintSize: 'A4',
+  showLogo: true,
+  showSignature: true,
+  lowStockLimit: 10,
+}
+
+const loadCompanySettings = (): CompanySettings => {
+  try {
+    const saved = window.localStorage.getItem(companySettingsStorageKey)
+    const parsed = saved ? JSON.parse(saved) as Partial<CompanySettings> : null
+    if (parsed && typeof parsed === 'object') {
+      const merged = { ...defaultCompanySettings, ...parsed }
+      const startingNumber = Number(merged.startingNumber)
+      const lowStockLimit = Number(merged.lowStockLimit)
+      return {
+        ...merged,
+        startingNumber: Number.isFinite(startingNumber) ? Math.max(0, startingNumber) : defaultCompanySettings.startingNumber,
+        lowStockLimit: Number.isFinite(lowStockLimit) ? Math.max(0, lowStockLimit) : defaultCompanySettings.lowStockLimit,
+        defaultPrintSize: merged.defaultPrintSize === '80mm Thermal' ? '80mm Thermal' : 'A4',
+        showLogo: Boolean(merged.showLogo),
+        showSignature: Boolean(merged.showSignature),
+      }
+    }
+  } catch {
+    // Fall back to the defaults when saved settings are unavailable or invalid.
+  }
+  return defaultCompanySettings
+}
+
+const persistCompanySettings = (settings: CompanySettings) => {
+  try {
+    window.localStorage.setItem(companySettingsStorageKey, JSON.stringify(settings))
+    return true
+  } catch {
+    return false
+  }
+}
+
 const initialProducts: Product[] = [
   {
     id: 'P-1001',
@@ -575,28 +632,7 @@ function App() {
   const [sales, setSales] = useState<Sale[]>([])
   const [rolePermissions, setRolePermissions] = useState<Record<ManagedRole, Page[]>>(loadRolePermissions)
   const [invoiceSequence, setInvoiceSequence] = useState(0)
-  const [settings, setSettings] = useState<CompanySettings>({
-    logo: defaultLogo,
-    companyName: 'AL-FATEH GARMENTS',
-    businessName: 'AFG UNIT',
-    address: 'Company address from Settings, Pakistan',
-    phone: '+92 300 1234567',
-    whatsapp: '+92 300 1234567',
-    email: 'info@alfatehgarments.com',
-    website: 'www.alfatehgarments.com',
-    ntn: '',
-    strn: '',
-    currency: 'PKR',
-    footerMessage: 'Quality garments, reliable service.',
-    thankYou: 'Thank you for shopping with Al-fateh Garments.',
-    exchangePolicy: 'Exchange within 7 days with original invoice and unused product.',
-    invoicePrefix: 'AFG-INV',
-    startingNumber: 1,
-    defaultPrintSize: 'A4',
-    showLogo: true,
-    showSignature: true,
-    lowStockLimit: 10,
-  })
+  const [settings, setSettings] = useState<CompanySettings>(loadCompanySettings)
 
   const [customerName, setCustomerName] = useState('')
   const [customerPhone, setCustomerPhone] = useState('')
@@ -655,6 +691,10 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem('afg-login-attempts', JSON.stringify(loginAttempts))
   }, [loginAttempts])
+
+  useEffect(() => {
+    persistCompanySettings(settings)
+  }, [settings])
 
   const invoiceNumber = useMemo(
     () => `${settings.invoicePrefix}-${String(settings.startingNumber + invoiceSequence).padStart(6, '0')}`,
@@ -4159,7 +4199,14 @@ function SettingsPage({ settings, setSettings }: { settings: CompanySettings; se
           Low Stock Limit
           <input type="number" value={settings.lowStockLimit} onChange={(event) => update('lowStockLimit', Number(event.target.value))} />
         </label>
-        <button className="primary-btn" onClick={() => alert('Settings saved successfully.')}>
+        <button
+          className="primary-btn"
+          onClick={() => alert(
+            persistCompanySettings(settings)
+              ? 'Settings saved successfully.'
+              : 'Unable to save settings. Please use a smaller logo image and try again.',
+          )}
+        >
           Save Settings
         </button>
       </section>
