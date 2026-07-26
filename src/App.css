@@ -4111,6 +4111,33 @@ td {
   }
 }
 
+.brand-lockup img,
+.side-brand img,
+.invoice-header img {
+  object-fit: cover;
+  object-position: center 46%;
+  background: #fff;
+}
+
+.brand-lockup img {
+  width: 112px;
+  height: 64px;
+  border-radius: 6px;
+}
+
+.side-brand img {
+  flex: 0 0 auto;
+  width: 72px;
+  height: 42px;
+  border-radius: 6px;
+}
+
+.invoice-header img {
+  width: 180px;
+  height: 90px;
+  border-radius: 0;
+}
+
 @media print {
   body.print-staff .sidebar,
   body.print-staff .topbar,

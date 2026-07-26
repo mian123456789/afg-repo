@@ -214,7 +214,6 @@ type CompanySettings = {
   currency: string
   footerMessage: string
   thankYou: string
-  exchangePolicy: string
   invoicePrefix: string
   startingNumber: number
   defaultPrintSize: 'A4' | '80mm Thermal'
@@ -294,29 +293,30 @@ const loadLoginAttempts = (): Record<string, LoginAttempt> => {
   }
 }
 
-const defaultLogo =
-  'data:image/svg+xml;utf8,' +
-  encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160"><rect width="160" height="160" rx="30" fill="#153B7A"/><path d="M38 115 72 39h17l34 76h-20l-6-15H63l-6 15H38Zm31-31h22L80 57 69 84Z" fill="#fff"/><path d="M48 128h64" stroke="#D5232A" stroke-width="10" stroke-linecap="round"/></svg>`,
-  )
+const defaultLogo = '/afg-logo.jpg'
 
 const companySettingsStorageKey = 'afg-company-settings'
+const companySettingsVersionKey = 'afg-company-settings-version'
+const companySettingsVersion = '2026-07-official-brand'
+
+const officialCompanyIdentity = {
+  logo: defaultLogo,
+  companyName: 'Al-Fateh Garments',
+  businessName: 'AFG',
+  phone: '+92 3008505088',
+  whatsapp: '+92 3008505088',
+  email: 'alfatehgarments2009@gmail.com',
+  website: 'www.afggarments.com',
+  currency: 'Rs.',
+}
 
 const defaultCompanySettings: CompanySettings = {
-  logo: defaultLogo,
-  companyName: 'AL-FATEH GARMENTS',
-  businessName: 'AFG UNIT',
+  ...officialCompanyIdentity,
   address: 'Company address from Settings, Pakistan',
-  phone: '+92 300 1234567',
-  whatsapp: '+92 300 1234567',
-  email: 'info@alfatehgarments.com',
-  website: 'www.alfatehgarments.com',
   ntn: '',
   strn: '',
-  currency: 'PKR',
   footerMessage: 'Quality garments, reliable service.',
   thankYou: 'Thank you for shopping with Al-fateh Garments.',
-  exchangePolicy: 'Exchange within 7 days with original invoice and unused product.',
   invoicePrefix: 'AFG-INV',
   startingNumber: 1,
   defaultPrintSize: 'A4',
@@ -328,20 +328,31 @@ const defaultCompanySettings: CompanySettings = {
 const loadCompanySettings = (): CompanySettings => {
   try {
     const saved = window.localStorage.getItem(companySettingsStorageKey)
-    const parsed = saved ? JSON.parse(saved) as Partial<CompanySettings> : null
-    if (parsed && typeof parsed === 'object') {
-      const merged = { ...defaultCompanySettings, ...parsed }
-      const startingNumber = Number(merged.startingNumber)
-      const lowStockLimit = Number(merged.lowStockLimit)
-      return {
-        ...merged,
-        startingNumber: Number.isFinite(startingNumber) ? Math.max(0, startingNumber) : defaultCompanySettings.startingNumber,
-        lowStockLimit: Number.isFinite(lowStockLimit) ? Math.max(0, lowStockLimit) : defaultCompanySettings.lowStockLimit,
-        defaultPrintSize: merged.defaultPrintSize === '80mm Thermal' ? '80mm Thermal' : 'A4',
-        showLogo: Boolean(merged.showLogo),
-        showSignature: Boolean(merged.showSignature),
-      }
+    const parsed = saved
+      ? JSON.parse(saved) as Partial<CompanySettings> & { exchangePolicy?: string }
+      : {}
+    const { exchangePolicy: _removedExchangePolicy, ...savedSettings } = parsed
+    const needsOfficialBrand = window.localStorage.getItem(companySettingsVersionKey) !== companySettingsVersion
+    const merged = {
+      ...defaultCompanySettings,
+      ...savedSettings,
+      ...(needsOfficialBrand ? officialCompanyIdentity : {}),
     }
+    const startingNumber = Number(merged.startingNumber)
+    const lowStockLimit = Number(merged.lowStockLimit)
+    const resolved: CompanySettings = {
+      ...merged,
+      startingNumber: Number.isFinite(startingNumber) ? Math.max(0, startingNumber) : defaultCompanySettings.startingNumber,
+      lowStockLimit: Number.isFinite(lowStockLimit) ? Math.max(0, lowStockLimit) : defaultCompanySettings.lowStockLimit,
+      defaultPrintSize: merged.defaultPrintSize === '80mm Thermal' ? '80mm Thermal' : 'A4',
+      showLogo: Boolean(merged.showLogo),
+      showSignature: Boolean(merged.showSignature),
+    }
+    if (needsOfficialBrand) {
+      window.localStorage.setItem(companySettingsStorageKey, JSON.stringify(resolved))
+      window.localStorage.setItem(companySettingsVersionKey, companySettingsVersion)
+    }
+    return resolved
   } catch {
     // Fall back to the defaults when saved settings are unavailable or invalid.
   }
@@ -1198,8 +1209,8 @@ function App() {
           <div className="brand-lockup">
             <img src={settings.logo} alt="AFG logo" />
             <div>
-              <h1>AFG UNIT</h1>
-              <p>Al-fateh Garments</p>
+              <h1>{settings.businessName}</h1>
+              <p>{settings.companyName}</p>
             </div>
           </div>
           <form onSubmit={handleLogin} className="login-form">
@@ -1250,8 +1261,8 @@ function App() {
         <div className="side-brand">
           <img src={settings.logo} alt="AFG logo" />
           <div>
-            <strong>AFG UNIT</strong>
-            <span>Al-fateh Garments</span>
+            <strong>{settings.businessName}</strong>
+            <span>{settings.companyName}</span>
           </div>
         </div>
         <nav>
@@ -4162,7 +4173,7 @@ function SettingsPage({ settings, setSettings }: { settings: CompanySettings; se
             }}
           />
         </label>
-        {(['companyName', 'businessName', 'address', 'phone', 'whatsapp', 'email', 'website', 'ntn', 'strn', 'currency', 'footerMessage', 'thankYou', 'exchangePolicy'] as const).map((key) => (
+        {(['companyName', 'businessName', 'address', 'phone', 'whatsapp', 'email', 'website', 'ntn', 'strn', 'currency', 'footerMessage', 'thankYou'] as const).map((key) => (
           <label key={key}>
             {key.replace(/([A-Z])/g, ' $1')}
             <input value={String(settings[key])} onChange={(event) => update(key, event.target.value)} />
@@ -4265,7 +4276,7 @@ function Invoice({ sale, settings }: { sale: Sale; settings: CompanySettings }) 
   const isDtfSale = sale.items.length > 0 && sale.items.every((item) => item.article === 'DTF')
   return (
     <article className="invoice-print">
-      <div className="invoice-corner-label">AFG UNIT | Al-fateh Garments POS</div>
+      <div className="invoice-corner-label">{settings.businessName} | {settings.companyName} POS</div>
       <header className="invoice-header">
         {settings.showLogo && <img src={settings.logo} alt="AFG logo" />}
         <h1>{settings.companyName}</h1>
@@ -4328,7 +4339,6 @@ function Invoice({ sale, settings }: { sale: Sale; settings: CompanySettings }) 
       </section>
       <footer className="invoice-footer">
         <p>{settings.thankYou}</p>
-        <p>{settings.exchangePolicy}</p>
         <p>{settings.footerMessage}</p>
         {settings.showSignature && <span>Authorized Signature: __________________</span>}
       </footer>
