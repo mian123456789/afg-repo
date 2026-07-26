@@ -4224,7 +4224,7 @@ function Invoice({ sale, settings }: { sale: Sale; settings: CompanySettings }) 
         <h1>{settings.companyName}</h1>
         <p>{settings.address}</p>
         <p>
-          Phone: {settings.phone} | WhatsApp: {settings.whatsapp} | {settings.email}
+          Phone: {settings.phone} | {settings.email}
         </p>
         {(settings.ntn || settings.strn) && (
           <p>
