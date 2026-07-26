@@ -705,6 +705,9 @@ function App() {
 
   useEffect(() => {
     persistCompanySettings(settings)
+    const saveBeforeLeaving = () => persistCompanySettings(settings)
+    window.addEventListener('pagehide', saveBeforeLeaving)
+    return () => window.removeEventListener('pagehide', saveBeforeLeaving)
   }, [settings])
 
   const invoiceNumber = useMemo(
@@ -4154,7 +4157,13 @@ function UsersPage({
 }
 
 function SettingsPage({ settings, setSettings }: { settings: CompanySettings; setSettings: React.Dispatch<React.SetStateAction<CompanySettings>> }) {
-  const update = (key: keyof CompanySettings, value: string | number | boolean) => setSettings((current) => ({ ...current, [key]: value }))
+  const update = (key: keyof CompanySettings, value: string | number | boolean) => {
+    setSettings((current) => {
+      const updated = { ...current, [key]: value }
+      persistCompanySettings(updated)
+      return updated
+    })
+  }
   return (
     <div className="settings-grid">
       <section className="panel">
