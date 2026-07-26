@@ -3883,6 +3883,234 @@ td {
   }
 }
 
+/* Final responsive layer: keep later desktop refinements from overriding phone layouts. */
+@media screen and (max-width: 940px) {
+  .dashboard-grid,
+  .settings-grid,
+  .pos-layout,
+  .two-column {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-view,
+  .reports-view,
+  .pos-main,
+  .pos-main > *,
+  .two-column > *,
+  .settings-grid > * {
+    min-width: 0;
+  }
+
+  .dashboard-view > .summary-grid,
+  .dashboard-view > .panel.wide,
+  .dashboard-view > .panel:not(.wide),
+  .dashboard-view > .quick-actions,
+  .reports-view > .panel.wide,
+  .reports-view > .panel:not(.wide),
+  .reports-view > .panel:last-child {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
+
+@media screen and (max-width: 760px) {
+  html,
+  body,
+  #root,
+  .app-shell,
+  .workspace,
+  .page-content {
+    max-width: 100%;
+  }
+
+  body {
+    overflow-x: hidden;
+  }
+
+  .page-content {
+    overflow-x: clip;
+  }
+
+  .topbar {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    align-items: start;
+    gap: 8px 10px;
+  }
+
+  .topbar > .mobile-menu {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .topbar > div:first-of-type {
+    grid-column: 2;
+    grid-row: 1;
+    width: 100%;
+  }
+
+  .top-actions {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    width: 100%;
+    gap: 8px;
+  }
+
+  .header-search {
+    grid-column: 1 / -1;
+    order: initial;
+    width: 100%;
+  }
+
+  .sync-btn,
+  .notification-wrap,
+  .profile {
+    order: initial;
+  }
+
+  .profile {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .dashboard-view {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-view > .summary-grid,
+  .report-kpis,
+  .attendance-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .metric-card {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .panel-title {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .panel-title > button,
+  .panel-title > .primary-btn,
+  .panel-title > .export-btn,
+  .panel-title > select,
+  .panel-title > input {
+    width: 100%;
+    max-width: none;
+  }
+
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .table-wrap,
+  .dtf-table {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+
+  .dtf-table table {
+    width: 620px;
+    min-width: 620px;
+  }
+
+  .inventory-table tbody,
+  .inventory-table tr,
+  .billing-table tbody,
+  .billing-table tr,
+  .billing-table .empty-cell {
+    width: 100%;
+  }
+
+  .billing-table tbody tr .empty-cell {
+    width: 100%;
+    max-width: none;
+  }
+
+  .user-create-form,
+  .staff-time-assignment-form,
+  .salary-assignment-form,
+  .piece-rate-form,
+  .piece-rate-advance-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .user-form-actions,
+  .staff-time-assignment-form .primary-btn,
+  .salary-assignment-form .primary-btn,
+  .piece-rate-form > .primary-btn,
+  .piece-rate-advance-form .primary-btn {
+    width: 100%;
+    grid-column: auto;
+    justify-self: stretch;
+  }
+
+  .salary-tabs,
+  .expense-period-tabs,
+  .attendance-period-tabs,
+  .billing-report-tabs {
+    width: 100%;
+  }
+
+  .notification-panel {
+    position: fixed;
+    inset: 12px;
+    width: auto;
+    max-height: calc(100svh - 24px);
+    overflow-y: auto;
+  }
+
+  .sidebar {
+    max-width: calc(100vw - 24px);
+    overscroll-behavior: contain;
+  }
+}
+
+@media screen and (max-width: 420px) {
+  .page-content {
+    padding: 10px;
+  }
+
+  .panel,
+  .customer-strip,
+  .bill-summary {
+    padding: 10px;
+  }
+
+  .metric-card {
+    min-height: 88px;
+    padding: 10px;
+  }
+
+  .metric-card strong {
+    font-size: 16px;
+  }
+
+  .summary-actions,
+  .modal-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .modal-actions {
+    display: grid;
+  }
+
+  .modal-actions button {
+    width: 100%;
+  }
+}
+
 @media print {
   body.print-staff .sidebar,
   body.print-staff .topbar,
