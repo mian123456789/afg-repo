@@ -41,6 +41,7 @@ type Page =
   | 'POS Billing'
   | 'DTF Billing'
   | 'Sales'
+  | 'Customers'
   | 'Inventory'
   | 'Expenses'
   | 'Staff'
@@ -70,7 +71,7 @@ type LoginAttempt = {
   lockedUntil: number
 }
 
-const permissionOptions: Page[] = ['Dashboard', 'POS Billing', 'DTF Billing', 'Sales', 'Inventory', 'Expenses', 'Staff', 'Salary', 'Attendance', 'Reports', 'Users', 'Settings']
+const permissionOptions: Page[] = ['Dashboard', 'POS Billing', 'DTF Billing', 'Sales', 'Customers', 'Inventory', 'Expenses', 'Staff', 'Salary', 'Attendance', 'Reports', 'Users', 'Settings']
 
 type Product = {
   id: string
@@ -273,8 +274,14 @@ const loadRolePermissions = (): Record<ManagedRole, Page[]> => {
     const saved = window.localStorage.getItem('afg-role-permissions')
     const parsed = saved ? JSON.parse(saved) as Partial<Record<ManagedRole, Page[]>> : null
     if (parsed?.Admin) {
+      const savedPages = parsed.Admin.filter((page): page is Page => permissionOptions.includes(page))
+      const hadLegacyFullAccess = permissionOptions
+        .filter((page) => page !== 'Customers')
+        .every((page) => savedPages.includes(page))
       return {
-        Admin: parsed.Admin.filter((page): page is Page => permissionOptions.includes(page)),
+        Admin: hadLegacyFullAccess && !savedPages.includes('Customers')
+          ? [...savedPages, 'Customers']
+          : savedPages,
       }
     }
   } catch {
@@ -534,6 +541,50 @@ const amountOf = (item: CartItem) => item.qty * item.rate
 
 const billingTypeOf = (sale: Sale): 'DTF' | 'POS' =>
   sale.items.length > 0 && sale.items.every((item) => item.article === 'DTF') ? 'DTF' : 'POS'
+
+type CustomerBillingCategory = 'POS' | 'DTF'
+
+type CustomerLedgerProfile = {
+  phone: string
+  name: string
+  category: CustomerBillingCategory
+  lastPurchase: string
+  invoices: number
+  billed: number
+  received: number
+  remaining: number
+  paidBills: number
+  pendingBills: number
+}
+
+const paymentStateOf = (sale: Sale): PaymentStatus =>
+  sale.paymentStatus === 'Pending' || sale.remaining > 0 ? 'Pending' : 'Paid'
+
+const customerProfilesFor = (sales: Sale[], category: CustomerBillingCategory): CustomerLedgerProfile[] => {
+  const profiles = new Map<string, CustomerLedgerProfile>()
+  sales
+    .filter((sale) => billingTypeOf(sale) === category)
+    .forEach((sale) => {
+      const current = profiles.get(sale.phone)
+      const paymentState = paymentStateOf(sale)
+      const isLatestSale = !current || sale.date >= current.lastPurchase
+      profiles.set(sale.phone, {
+        phone: sale.phone,
+        name: isLatestSale ? sale.customer : current?.name ?? sale.customer,
+        category,
+        lastPurchase: !current || sale.date > current.lastPurchase ? sale.date : current.lastPurchase,
+        invoices: (current?.invoices ?? 0) + 1,
+        billed: (current?.billed ?? 0) + sale.total,
+        received: (current?.received ?? 0) + sale.received,
+        remaining: (current?.remaining ?? 0) + sale.remaining,
+        paidBills: (current?.paidBills ?? 0) + (paymentState === 'Paid' ? 1 : 0),
+        pendingBills: (current?.pendingBills ?? 0) + (paymentState === 'Pending' ? 1 : 0),
+      })
+    })
+  return Array.from(profiles.values()).sort((a, b) => (
+    b.lastPurchase.localeCompare(a.lastPurchase) || a.name.localeCompare(b.name)
+  ))
+}
 
 const exportToExcel = (filename: string, headers: string[], rows: Array<Array<string | number>>, rightAlignedColumns: number[] = []) => {
   const escapeCell = (value: string | number) => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -1311,10 +1362,11 @@ function App() {
           {(
             [
               ['Dashboard', LayoutDashboard],
-              ['POS Billing', ShoppingCart],
-              ['DTF Billing', ReceiptText],
-              ['Sales', ReceiptText],
-              ['Inventory', Boxes],
+               ['POS Billing', ShoppingCart],
+               ['DTF Billing', ReceiptText],
+               ['Sales', ReceiptText],
+               ['Customers', Users],
+               ['Inventory', Boxes],
               ['Expenses', WalletCards],
               ['Staff', UserPlus],
               ['Salary', Banknote],
@@ -1649,6 +1701,13 @@ function App() {
                   `Invoice: ${sale.invoice} | Billing: ${billingTypeOf(sale)} | Customer: ${sale.customer} | Phone: ${sale.phone} | Vehicle: ${sale.vehicleNumber || '-'} | Items: ${sale.items.map((item) => `${item.description} (${item.qty} x ${formatMoney(item.rate, settings.currency)} = ${formatMoney(amountOf(item), settings.currency)})`).join('; ') || '-'} | Subtotal: ${formatMoney(sale.subtotal, settings.currency)} | Discount: ${formatMoney(sale.discount, settings.currency)} | Total: ${formatMoney(sale.total, settings.currency)} | Received: ${formatMoney(sale.received, settings.currency)} | Remaining: ${formatMoney(sale.remaining, settings.currency)} | Payment: ${sale.method}${sale.bankName ? ` / ${sale.bankName}` : ''} | Status: ${sale.paymentStatus} | Reference: ${sale.reference || '-'} | Remarks: ${sale.remarks || '-'} | Processed by: ${sale.cashier}`,
                 )
               }}
+            />
+          )}
+          {page === 'Customers' && (
+            <CustomersPage
+              sales={visibleSales}
+              billingTypes={allowedBillingTypes}
+              currency={settings.currency}
             />
           )}
           {page === 'Expenses' && (
@@ -2542,6 +2601,295 @@ function SalesPage(props: {
         />
       )}
     </>
+  )
+}
+
+function CustomersPage({
+  sales,
+  billingTypes,
+  currency,
+}: {
+  sales: Sale[]
+  billingTypes: CustomerBillingCategory[]
+  currency: string
+}) {
+  const [category, setCategory] = useState<CustomerBillingCategory>(
+    billingTypes.includes('POS') ? 'POS' : 'DTF',
+  )
+  const [selectedPhone, setSelectedPhone] = useState('')
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'All' | PaymentStatus>('All')
+  const profiles = customerProfilesFor(sales, category)
+  const categorySales = sales.filter((sale) => billingTypeOf(sale) === category)
+  const categoryTotals = profiles.reduce(
+    (totals, profile) => ({
+      billed: totals.billed + profile.billed,
+      received: totals.received + profile.received,
+      remaining: totals.remaining + profile.remaining,
+    }),
+    { billed: 0, received: 0, remaining: 0 },
+  )
+  const visibleProfiles = profiles.filter((profile) => {
+    const query = search.trim().toLowerCase()
+    const searchMatches = !query || `${profile.name} ${profile.phone}`.toLowerCase().includes(query)
+    const statusMatches = statusFilter === 'All'
+      || (statusFilter === 'Paid' ? profile.pendingBills === 0 : profile.pendingBills > 0)
+    return searchMatches && statusMatches
+  })
+  const activeCustomer = visibleProfiles.find((profile) => profile.phone === selectedPhone)
+    ?? visibleProfiles[0]
+  const fullCustomerLedger = activeCustomer
+    ? categorySales.filter((sale) => sale.phone === activeCustomer.phone)
+    : []
+  const visibleCustomerLedger = fullCustomerLedger.filter((sale) => (
+    statusFilter === 'All' || paymentStateOf(sale) === statusFilter
+  ))
+  const ledgerTotals = fullCustomerLedger.reduce(
+    (totals, sale) => ({
+      quantity: totals.quantity + sale.items.reduce((sum, item) => sum + item.qty, 0),
+      billed: totals.billed + sale.total,
+      received: totals.received + sale.received,
+      remaining: totals.remaining + sale.remaining,
+      paidBills: totals.paidBills + (paymentStateOf(sale) === 'Paid' ? 1 : 0),
+      pendingBills: totals.pendingBills + (paymentStateOf(sale) === 'Pending' ? 1 : 0),
+    }),
+    { quantity: 0, billed: 0, received: 0, remaining: 0, paidBills: 0, pendingBills: 0 },
+  )
+  const ledgerRows = visibleCustomerLedger.map((sale) => {
+    const paymentState = paymentStateOf(sale)
+    return [
+      sale.invoice,
+      <span className={`billing-tag ${category.toLowerCase()}`} key={`category-${sale.invoice}`}>
+        {category} Billing
+      </span>,
+      sale.date,
+      sale.time,
+      sale.items.map((item) => item.description).join(', '),
+      sale.items.reduce((sum, item) => sum + item.qty, 0),
+      formatMoney(sale.total, currency),
+      formatMoney(sale.received, currency),
+      formatMoney(sale.remaining, currency),
+      sale.method === 'Bank' ? `${sale.method} / ${sale.bankName || '-'}` : sale.method,
+      <span className={paymentState === 'Paid' ? 'badge ok' : 'badge danger'} key={`status-${sale.invoice}`}>
+        {paymentState}
+      </span>,
+      sale.vehicleNumber || '-',
+    ]
+  })
+
+  const exportCustomerLedger = () => {
+    if (!activeCustomer) return
+    exportFormattedExcel(
+      `afg-${category.toLowerCase()}-customer-ledger-${activeCustomer.name.toLowerCase().replaceAll(' ', '-')}`,
+      `AFG | ${category} Customer Ledger`,
+      `${activeCustomer.name} (${activeCustomer.phone}) | ${fullCustomerLedger.length} bill${fullCustomerLedger.length === 1 ? '' : 's'} | Billed: ${formatMoney(ledgerTotals.billed, currency)} | Received: ${formatMoney(ledgerTotals.received, currency)} | Pending: ${formatMoney(ledgerTotals.remaining, currency)}`,
+      [
+        {
+          title: `${activeCustomer.name} - ${category} Billing`,
+          headers: ['Invoice', 'Category', 'Date', 'Time', 'Items', 'Qty.', 'Billed', 'Received', 'Pending', 'Payment', 'Status', 'Vehicle'],
+          rows: [
+            ...fullCustomerLedger.map((sale) => [
+              sale.invoice,
+              `${category} Billing`,
+              sale.date,
+              sale.time,
+              sale.items.map((item) => item.description).join(', '),
+              sale.items.reduce((sum, item) => sum + item.qty, 0),
+              formatMoney(sale.total, currency),
+              formatMoney(sale.received, currency),
+              formatMoney(sale.remaining, currency),
+              sale.method === 'Bank' ? `${sale.method} / ${sale.bankName || '-'}` : sale.method,
+              paymentStateOf(sale),
+              sale.vehicleNumber || '-',
+            ]),
+            ['', '', '', '', 'TOTAL', ledgerTotals.quantity, formatMoney(ledgerTotals.billed, currency), formatMoney(ledgerTotals.received, currency), formatMoney(ledgerTotals.remaining, currency), '', '', ''],
+          ],
+          rightAlignedColumns: [5, 6, 7, 8],
+          centerAlignedColumns: [0, 1, 2, 3, 9, 10, 11],
+          highlightLastRow: true,
+        },
+      ],
+    )
+  }
+
+  return (
+    <div className="customers-page">
+      <section className="panel customer-category-panel">
+        <div className="customer-category-heading">
+          <div>
+            <h3>Customer Billing Directory</h3>
+            <p className="report-subtitle">Select a billing category, then choose a customer to open the complete sales ledger.</p>
+          </div>
+          <div className="customer-category-tabs" aria-label="Customer billing category">
+            {billingTypes.includes('POS') && (
+              <button
+                className={category === 'POS' ? 'pos active' : 'pos'}
+                type="button"
+                onClick={() => {
+                  setCategory('POS')
+                  setSelectedPhone('')
+                  setStatusFilter('All')
+                }}
+              >
+                <ShoppingCart size={17} /> POS Customers
+              </button>
+            )}
+            {billingTypes.includes('DTF') && (
+              <button
+                className={category === 'DTF' ? 'dtf active' : 'dtf'}
+                type="button"
+                onClick={() => {
+                  setCategory('DTF')
+                  setSelectedPhone('')
+                  setStatusFilter('All')
+                }}
+              >
+                <ReceiptText size={17} /> DTF Customers
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="customer-category-summary">
+          <div>
+            <span>Customers</span>
+            <strong>{profiles.length}</strong>
+            <small>{category} category</small>
+          </div>
+          <div>
+            <span>Total Bills</span>
+            <strong>{categorySales.length}</strong>
+            <small>all invoices</small>
+          </div>
+          <div>
+            <span>Total Billed</span>
+            <strong>{formatMoney(categoryTotals.billed, currency)}</strong>
+            <small>sales value</small>
+          </div>
+          <div>
+            <span>Received</span>
+            <strong>{formatMoney(categoryTotals.received, currency)}</strong>
+            <small>collected</small>
+          </div>
+          <div className="pending">
+            <span>Pending</span>
+            <strong>{formatMoney(categoryTotals.remaining, currency)}</strong>
+            <small>outstanding</small>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel customer-directory-panel">
+        <div className="panel-title customer-directory-title">
+          <div>
+            <h3>{category} Customers</h3>
+            <p className="report-subtitle">{visibleProfiles.length} customer{visibleProfiles.length === 1 ? '' : 's'} shown</p>
+          </div>
+          <span className={`billing-tag ${category.toLowerCase()}`}>{category}</span>
+        </div>
+        <label className="customer-directory-search">
+          <Search size={16} />
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search name or phone"
+          />
+        </label>
+        <div className="customer-payment-filters" aria-label="Customer payment status">
+          {(['All', 'Paid', 'Pending'] as const).map((status) => (
+            <button
+              className={statusFilter === status ? 'active' : ''}
+              type="button"
+              key={status}
+              onClick={() => {
+                setStatusFilter(status)
+                setSelectedPhone('')
+              }}
+            >
+              {status}
+            </button>
+          ))}
+        </div>
+        <div className="customer-directory-list">
+          {visibleProfiles.length ? visibleProfiles.map((profile) => (
+            <button
+              className={activeCustomer?.phone === profile.phone ? 'customer-directory-item active' : 'customer-directory-item'}
+              type="button"
+              key={profile.phone}
+              onClick={() => setSelectedPhone(profile.phone)}
+            >
+              <span className="customer-avatar">{profile.name.trim().charAt(0).toUpperCase() || 'C'}</span>
+              <span className="customer-directory-copy">
+                <strong>{profile.name}</strong>
+                <small>{profile.phone}</small>
+                <small>{profile.invoices} bill{profile.invoices === 1 ? '' : 's'} - {profile.paidBills} paid - {profile.pendingBills} pending</small>
+              </span>
+              <span className="customer-directory-balance">
+                <b>{formatMoney(profile.remaining, currency)}</b>
+                <small className={profile.pendingBills ? 'pending' : 'paid'}>
+                  {profile.pendingBills ? 'Pending' : 'Paid'}
+                </small>
+              </span>
+            </button>
+          )) : (
+            <div className="customer-directory-empty">
+              <Users size={24} />
+              <strong>No {category} customers found</strong>
+              <span>Try another payment filter or billing category.</span>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="panel customer-profile-ledger">
+        <div className="panel-title customer-ledger-heading">
+          <div>
+            <h3>{activeCustomer ? `${activeCustomer.name} Ledger` : 'Customer Ledger'}</h3>
+            <p className="report-subtitle">
+              {activeCustomer ? `${activeCustomer.phone} - ${category} billing category` : `Select a ${category} customer to view billing history.`}
+            </p>
+          </div>
+          <button className="primary-btn export-btn" type="button" onClick={exportCustomerLedger} disabled={!activeCustomer}>
+            <Download size={16} /> Export Full Ledger
+          </button>
+        </div>
+        <div className="customer-profile-summary">
+          <div>
+            <span>Total Bills</span>
+            <strong>{fullCustomerLedger.length}</strong>
+          </div>
+          <div>
+            <span>Paid Bills</span>
+            <strong>{ledgerTotals.paidBills}</strong>
+          </div>
+          <div className="pending">
+            <span>Pending Bills</span>
+            <strong>{ledgerTotals.pendingBills}</strong>
+          </div>
+          <div>
+            <span>Total Billed</span>
+            <strong>{formatMoney(ledgerTotals.billed, currency)}</strong>
+          </div>
+          <div>
+            <span>Received</span>
+            <strong>{formatMoney(ledgerTotals.received, currency)}</strong>
+          </div>
+          <div className="pending">
+            <span>Pending Balance</span>
+            <strong>{formatMoney(ledgerTotals.remaining, currency)}</strong>
+          </div>
+        </div>
+        {statusFilter !== 'All' && (
+          <p className="customer-ledger-filter-note">
+            Showing {statusFilter.toLowerCase()} invoices. Select All to view the complete ledger.
+          </p>
+        )}
+        <DataTable
+          className="customer-profile-ledger-table"
+          headers={['Invoice', 'Category', 'Date', 'Time', 'Items', 'Qty.', 'Billed', 'Received', 'Pending', 'Payment', 'Status', 'Vehicle']}
+          rows={ledgerRows}
+        />
+      </section>
+    </div>
   )
 }
 
@@ -4104,9 +4452,7 @@ function ReportsPage({
   const expenseTotal = expenses.reduce((sum, expense) => sum + expense.amount, 0)
   const posSales = sales.filter((sale) => billingTypeOf(sale) === 'POS')
   const dtfSales = sales.filter((sale) => billingTypeOf(sale) === 'DTF')
-  const customerOptions = Array.from(
-    new Map(sales.map((sale) => [sale.phone, { phone: sale.phone, name: sale.customer }])).values(),
-  ).sort((a, b) => a.name.localeCompare(b.name))
+  const customerOptions = customerProfilesFor(sales, customerBillingType)
   const activeCustomerPhone = customerOptions.some((customer) => customer.phone === selectedCustomerPhone)
     ? selectedCustomerPhone
     : customerOptions[0]?.phone ?? ''
@@ -4120,8 +4466,10 @@ function ReportsPage({
       received: totals.received + sale.received,
       remaining: totals.remaining + sale.remaining,
       quantity: totals.quantity + sale.items.reduce((sum, item) => sum + item.qty, 0),
+      paidBills: totals.paidBills + (paymentStateOf(sale) === 'Paid' ? 1 : 0),
+      pendingBills: totals.pendingBills + (paymentStateOf(sale) === 'Pending' ? 1 : 0),
     }),
-    { billed: 0, received: 0, remaining: 0, quantity: 0 },
+    { billed: 0, received: 0, remaining: 0, quantity: 0, paidBills: 0, pendingBills: 0 },
   )
   const customerLedgerRows = customerLedgerSales.map((sale) => [
     sale.invoice,
@@ -4134,7 +4482,7 @@ function ReportsPage({
     formatMoney(sale.received, currency),
     formatMoney(sale.remaining, currency),
     sale.method,
-    sale.paymentStatus,
+    paymentStateOf(sale),
     sale.vehicleNumber || '-',
     sale.reference || '-',
   ])
@@ -4175,7 +4523,7 @@ function ReportsPage({
       sale.date,
       sale.customer,
       sale.method,
-      sale.paymentStatus,
+      paymentStateOf(sale),
       sale.items.reduce((sum, item) => sum + item.qty, 0),
       formatMoney(sale.total, currency),
     ])
@@ -4210,7 +4558,7 @@ function ReportsPage({
       exportFormattedExcel(
         `afg-${customerBillingType.toLowerCase()}-customer-ledger-${selectedCustomer?.name.toLowerCase().replaceAll(' ', '-') || 'empty'}`,
         `AFG | ${customerBillingType} Customer Sales Ledger`,
-        `${customerLabel} | ${customerLedgerSales.length} bill${customerLedgerSales.length === 1 ? '' : 's'} | Billed: ${formatMoney(customerLedgerTotals.billed, currency)} | Received: ${formatMoney(customerLedgerTotals.received, currency)} | Balance: ${formatMoney(customerLedgerTotals.remaining, currency)}`,
+        `${customerLabel} | ${customerLedgerSales.length} bill${customerLedgerSales.length === 1 ? '' : 's'} | Paid: ${customerLedgerTotals.paidBills} | Pending: ${customerLedgerTotals.pendingBills} | Billed: ${formatMoney(customerLedgerTotals.billed, currency)} | Received: ${formatMoney(customerLedgerTotals.received, currency)} | Balance: ${formatMoney(customerLedgerTotals.remaining, currency)}`,
         [
           {
             title: `${customerBillingType} Billing Ledger`,
@@ -4357,6 +4705,7 @@ function ReportsPage({
                 {customerOptions.length ? (
                   customerOptions.map((customer) => (
                     <option value={customer.phone} key={customer.phone}>
+                      {customer.category} -{' '}
                       {customer.name} · {customer.phone}
                     </option>
                   ))
@@ -4419,6 +4768,16 @@ function ReportsPage({
                 <span>Total Bills</span>
                 <strong>{customerLedgerSales.length}</strong>
                 <small>{customerBillingType} billing</small>
+              </div>
+              <div>
+                <span>Paid Bills</span>
+                <strong>{customerLedgerTotals.paidBills}</strong>
+                <small>fully paid</small>
+              </div>
+              <div className="balance">
+                <span>Pending Bills</span>
+                <strong>{customerLedgerTotals.pendingBills}</strong>
+                <small>payment due</small>
               </div>
               <div>
                 <span>Total Quantity</span>
