@@ -1558,6 +1558,64 @@ function App() {
               setSearch={setSalesSearch}
               preview={setPreviewSale}
               print={printSavedSale}
+              products={products}
+              editSale={(updatedSale) => {
+                const originalSale = sales.find((sale) => sale.invoice === updatedSale.invoice)
+                if (!originalSale) return
+                if (billingTypeOf(originalSale) === 'POS') {
+                  const originalQuantities = new Map(originalSale.items.map((item) => [item.productId, item.qty]))
+                  const updatedQuantities = new Map(updatedSale.items.map((item) => [item.productId, item.qty]))
+                  setProducts((rows) => rows.map((product) => ({
+                    ...product,
+                    stock: Math.max(
+                      0,
+                      product.stock
+                        + (originalQuantities.get(product.id) ?? 0)
+                        - (updatedQuantities.get(product.id) ?? 0),
+                    ),
+                  })))
+                }
+                setCustomers((rows) => {
+                  const adjusted = rows.map((customer) => (
+                    customer.phone === originalSale.phone
+                      ? {
+                          ...customer,
+                          totalPurchases: Math.max(0, customer.totalPurchases - originalSale.total),
+                          totalPaid: Math.max(0, customer.totalPaid - originalSale.received),
+                        }
+                      : customer
+                  ))
+                  const existingCustomer = adjusted.some((customer) => customer.phone === updatedSale.phone)
+                  if (existingCustomer) {
+                    return adjusted.map((customer) => (
+                      customer.phone === updatedSale.phone
+                        ? {
+                            ...customer,
+                            name: updatedSale.customer,
+                            totalPurchases: customer.totalPurchases + updatedSale.total,
+                            totalPaid: customer.totalPaid + updatedSale.received,
+                            lastPurchase: updatedSale.date,
+                          }
+                        : customer
+                    ))
+                  }
+                  return [
+                    ...adjusted,
+                    {
+                      name: updatedSale.customer,
+                      phone: updatedSale.phone,
+                      address: '',
+                      totalPurchases: updatedSale.total,
+                      totalPaid: updatedSale.received,
+                      lastPurchase: updatedSale.date,
+                    },
+                  ]
+                })
+                setSales((rows) => rows.map((sale) => (
+                  sale.invoice === updatedSale.invoice ? updatedSale : sale
+                )))
+                notify(`${updatedSale.invoice} updated successfully.`)
+              }}
               exportSales={() =>
                 exportToExcel(
                   'afg-sales',
@@ -2421,51 +2479,333 @@ function SalesPage(props: {
   setSearch: (value: string) => void
   preview: (sale: Sale) => void
   print: (sale: Sale) => void
+  products: Product[]
+  editSale: (sale: Sale) => void
   exportSales: () => void
   currency: string
   role: Role
   deleteSale: (invoice: string) => void
 }) {
+  const [editingSale, setEditingSale] = useState<Sale | null>(null)
   return (
-    <section className="panel">
-      <div className="panel-title">
-        <h3>Sales History</h3>
-        <button className="primary-btn export-btn" onClick={props.exportSales}>
-          <Download size={16} /> Export Excel
-        </button>
-        <input value={props.search} onChange={(e) => props.setSearch(e.target.value)} placeholder="Invoice, customer, or phone" />
-      </div>
-      <BillingTypeSummary sales={props.sales} currency={props.currency} billingTypes={props.billingTypes} />
-      <div className="filter-row">
-        {['Today', 'Yesterday', 'This Week', 'This Month', 'Custom Date Range', 'Cash', 'Bank'].map((filter) => (
-          <button key={filter}>{filter}</button>
-        ))}
-      </div>
-      <DataTable
-        headers={['Invoice Number', 'Billing Type', 'Date', 'Time', 'Customer', 'Phone', 'Total Quantity', 'Grand Total', 'Paid Amount', 'Remaining Amount', 'Payment Method', 'Processed By', 'Actions']}
-        rows={props.sales.map((sale) => [
-          sale.invoice,
-          <span className={`billing-tag ${billingTypeOf(sale).toLowerCase()}`}>{billingTypeOf(sale) === 'DTF' ? 'DTF Billing' : 'POS Billing'}</span>,
-          sale.date,
-          sale.time,
-          sale.customer,
-          sale.phone,
-          sale.items.reduce((sum, item) => sum + item.qty, 0),
-          formatMoney(sale.total, props.currency),
-          formatMoney(sale.received, props.currency),
-          formatMoney(sale.remaining, props.currency),
-          sale.method,
-          sale.cashier,
-          <span className="action-cluster">
-            <button onClick={() => props.preview(sale)}>View</button>
-            <button onClick={() => props.print(sale)}>Print</button>
-            <button className="danger-text" onClick={() => props.deleteSale(sale.invoice)}>
-              Delete
-            </button>
-          </span>,
-        ])}
-      />
-    </section>
+    <>
+      <section className="panel">
+        <div className="panel-title">
+          <h3>Sales History</h3>
+          <button className="primary-btn export-btn" onClick={props.exportSales}>
+            <Download size={16} /> Export Excel
+          </button>
+          <input value={props.search} onChange={(e) => props.setSearch(e.target.value)} placeholder="Invoice, customer, or phone" />
+        </div>
+        <BillingTypeSummary sales={props.sales} currency={props.currency} billingTypes={props.billingTypes} />
+        <div className="filter-row">
+          {['Today', 'Yesterday', 'This Week', 'This Month', 'Custom Date Range', 'Cash', 'Bank'].map((filter) => (
+            <button key={filter}>{filter}</button>
+          ))}
+        </div>
+        <DataTable
+          headers={['Invoice Number', 'Billing Type', 'Date', 'Time', 'Customer', 'Phone', 'Total Quantity', 'Grand Total', 'Paid Amount', 'Remaining Amount', 'Payment Method', 'Processed By', 'Actions']}
+          rows={props.sales.map((sale) => [
+            sale.invoice,
+            <span className={`billing-tag ${billingTypeOf(sale).toLowerCase()}`}>{billingTypeOf(sale) === 'DTF' ? 'DTF Billing' : 'POS Billing'}</span>,
+            sale.date,
+            sale.time,
+            sale.customer,
+            sale.phone,
+            sale.items.reduce((sum, item) => sum + item.qty, 0),
+            formatMoney(sale.total, props.currency),
+            formatMoney(sale.received, props.currency),
+            formatMoney(sale.remaining, props.currency),
+            sale.method,
+            sale.cashier,
+            <span className="action-cluster">
+              <button onClick={() => setEditingSale(sale)}><Pencil size={14} /> Edit</button>
+              <button onClick={() => props.preview(sale)}>View</button>
+              <button onClick={() => props.print(sale)}>Print</button>
+              <button className="danger-text" onClick={() => props.deleteSale(sale.invoice)}>
+                Delete
+              </button>
+            </span>,
+          ])}
+        />
+      </section>
+      {editingSale && (
+        <EditSaleModal
+          sale={editingSale}
+          products={props.products}
+          currency={props.currency}
+          onClose={() => setEditingSale(null)}
+          onSave={(sale) => {
+            props.editSale(sale)
+            setEditingSale(null)
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+function EditSaleModal({
+  sale,
+  products,
+  currency,
+  onClose,
+  onSave,
+}: {
+  sale: Sale
+  products: Product[]
+  currency: string
+  onClose: () => void
+  onSave: (sale: Sale) => void
+}) {
+  const [draft, setDraft] = useState<Sale>(() => ({
+    ...sale,
+    items: sale.items.map((item) => ({ ...item })),
+  }))
+  const [error, setError] = useState('')
+  const isDtf = billingTypeOf(sale) === 'DTF'
+  const subtotal = draft.items.reduce((sum, item) => sum + amountOf(item), 0)
+  const received = Math.max(0, Number(draft.received) || 0)
+  const remaining = Math.max(0, subtotal - received)
+  const change = Math.max(0, received - subtotal)
+
+  const updateItem = (productId: string, changes: Partial<CartItem>) => {
+    setDraft((current) => ({
+      ...current,
+      items: current.items.map((item) => (
+        item.productId === productId ? { ...item, ...changes } : item
+      )),
+    }))
+  }
+
+  const saveChanges = () => {
+    const phoneDigits = draft.phone.replace(/\D/g, '')
+    if (!draft.customer.trim()) {
+      setError('Customer name is required.')
+      return
+    }
+    if (phoneDigits.length !== 11) {
+      setError('Customer phone must contain exactly 11 digits.')
+      return
+    }
+    if (!draft.vehicleNumber?.trim()) {
+      setError('Vehicle number is required.')
+      return
+    }
+    if (!draft.items.length) {
+      setError('The bill must contain at least one item.')
+      return
+    }
+    if (draft.items.some((item) => !item.description.trim() || item.qty < 1 || item.rate < 0)) {
+      setError('Complete every item with a valid name, quantity, and rate.')
+      return
+    }
+    if (!isDtf) {
+      const unavailableItem = draft.items.find((item) => {
+        const product = products.find((row) => row.id === item.productId)
+        const originalQty = sale.items.find((row) => row.productId === item.productId)?.qty ?? 0
+        return product ? item.qty > product.stock + originalQty : false
+      })
+      if (unavailableItem) {
+        setError(`Not enough stock is available for ${unavailableItem.description}.`)
+        return
+      }
+    }
+    onSave({
+      ...draft,
+      customer: draft.customer.trim(),
+      phone: draft.phone.trim(),
+      vehicleNumber: draft.vehicleNumber.trim(),
+      items: draft.items.map((item) => ({
+        ...item,
+        description: item.description.trim(),
+        qty: Math.max(1, Math.floor(item.qty)),
+        rate: Math.max(0, item.rate),
+      })),
+      subtotal,
+      total: subtotal,
+      received,
+      remaining,
+      change,
+      bankName: draft.method === 'Bank' ? draft.bankName || 'Meezan' : undefined,
+      reference: draft.reference?.trim() || undefined,
+      remarks: draft.remarks?.trim() || undefined,
+    })
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <section className="sale-edit-modal" aria-label={`Edit ${sale.invoice}`}>
+        <div className="sale-edit-header">
+          <div>
+            <span className={`billing-tag ${isDtf ? 'dtf' : 'pos'}`}>{isDtf ? 'DTF Billing' : 'POS Billing'}</span>
+            <h3>Edit Bill {sale.invoice}</h3>
+            <p>{sale.date} · {sale.time} · Processed by {sale.cashier}</p>
+          </div>
+          <button className="icon-btn" type="button" onClick={onClose} aria-label="Close bill editor" title="Close">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="sale-edit-fields">
+          <label>
+            Customer Name
+            <input value={draft.customer} onChange={(event) => setDraft((current) => ({ ...current, customer: event.target.value }))} />
+          </label>
+          <label>
+            Customer Phone
+            <input inputMode="numeric" value={draft.phone} onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))} />
+          </label>
+          <label>
+            Vehicle Number
+            <input value={draft.vehicleNumber || ''} onChange={(event) => setDraft((current) => ({ ...current, vehicleNumber: event.target.value }))} />
+          </label>
+          <label>
+            Payment Method
+            <select value={draft.method} onChange={(event) => setDraft((current) => ({ ...current, method: event.target.value as PaymentMethod }))}>
+              <option>Cash</option>
+              <option>Bank</option>
+            </select>
+          </label>
+          {draft.method === 'Bank' && (
+            <label>
+              Bank
+              <select value={draft.bankName || 'Meezan'} onChange={(event) => setDraft((current) => ({ ...current, bankName: event.target.value }))}>
+                <option>Meezan</option>
+                <option>JazzCash</option>
+                <option>Easypaisa</option>
+                <option>UBL</option>
+                <option>Askari</option>
+              </select>
+            </label>
+          )}
+          <label>
+            Payment Status
+            <select value={draft.paymentStatus} onChange={(event) => setDraft((current) => ({ ...current, paymentStatus: event.target.value as PaymentStatus }))}>
+              <option>Paid</option>
+              <option>Pending</option>
+            </select>
+          </label>
+          <label>
+            Received Amount
+            <input
+              type="number"
+              min="0"
+              value={draft.received}
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => setDraft((current) => ({ ...current, received: Math.max(0, Number(event.target.value) || 0) }))}
+            />
+          </label>
+          <label>
+            Payment Reference
+            <input value={draft.reference || ''} onChange={(event) => setDraft((current) => ({ ...current, reference: event.target.value }))} />
+          </label>
+        </div>
+
+        <div className="sale-edit-items">
+          <div className="panel-title">
+            <div>
+              <h3>Bill Items</h3>
+              <p className="report-subtitle">Update quantities and rates. Stock is checked for POS items.</p>
+            </div>
+            {isDtf && (
+              <button
+                type="button"
+                onClick={() => setDraft((current) => ({
+                  ...current,
+                  items: [
+                    ...current.items,
+                    {
+                      productId: `DTF-EDIT-${Date.now()}`,
+                      description: '',
+                      article: 'DTF',
+                      qty: 1,
+                      rate: 0,
+                    },
+                  ],
+                }))}
+              >
+                <Plus size={16} /> Add Item
+              </button>
+            )}
+          </div>
+          <div className="sale-edit-item-list">
+            {draft.items.map((item, index) => (
+              <div className="sale-edit-item" key={item.productId}>
+                <span className="sale-edit-item-number">{index + 1}</span>
+                <label>
+                  Item
+                  <input
+                    value={item.description}
+                    readOnly={!isDtf}
+                    onChange={(event) => updateItem(item.productId, { description: event.target.value })}
+                  />
+                </label>
+                <label>
+                  Article
+                  <input value={item.article} readOnly />
+                </label>
+                <label>
+                  Qty.
+                  <input
+                    type="number"
+                    min="1"
+                    value={item.qty}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onChange={(event) => updateItem(item.productId, { qty: Math.max(1, Math.floor(Number(event.target.value) || 1)) })}
+                  />
+                </label>
+                <label>
+                  Rate
+                  <input
+                    type="number"
+                    min="0"
+                    value={item.rate}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onChange={(event) => updateItem(item.productId, { rate: Math.max(0, Number(event.target.value) || 0) })}
+                  />
+                </label>
+                <strong>{formatMoney(amountOf(item), currency)}</strong>
+                {isDtf && (
+                  <button
+                    className="icon-btn danger-text"
+                    type="button"
+                    onClick={() => setDraft((current) => ({
+                      ...current,
+                      items: current.items.filter((row) => row.productId !== item.productId),
+                    }))}
+                    aria-label={`Remove ${item.description || `item ${index + 1}`}`}
+                    title="Remove item"
+                  >
+                    <Trash2 size={17} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="sale-edit-footer">
+          <label className="sale-edit-remarks">
+            Remarks
+            <textarea value={draft.remarks || ''} onChange={(event) => setDraft((current) => ({ ...current, remarks: event.target.value }))} />
+          </label>
+          <div className="sale-edit-totals">
+            <SummaryLine label="Grand Total" value={formatMoney(subtotal, currency)} strong />
+            <SummaryLine label="Received" value={formatMoney(received, currency)} />
+            <SummaryLine label="Remaining" value={formatMoney(remaining, currency)} />
+            {change > 0 && <SummaryLine label="Change" value={formatMoney(change, currency)} />}
+          </div>
+        </div>
+        {error && <p className="form-error sale-edit-error">{error}</p>}
+        <div className="modal-actions">
+          <button type="button" onClick={onClose}>Cancel</button>
+          <button className="primary-btn" type="button" onClick={saveChanges}>
+            <Save size={17} /> Save Changes
+          </button>
+        </div>
+      </section>
+    </div>
   )
 }
 
@@ -3754,12 +4094,50 @@ function ReportsPage({
         ? 'DTF Billing Report'
         : 'Daily Sales Report',
   )
+  const [selectedCustomerPhone, setSelectedCustomerPhone] = useState(sales[0]?.phone ?? '')
+  const [customerBillingType, setCustomerBillingType] = useState<'POS' | 'DTF'>(
+    billingTypes.includes('POS') ? 'POS' : 'DTF',
+  )
   const gross = sales.reduce((sum, sale) => sum + sale.subtotal, 0)
   const discounts = sales.reduce((sum, sale) => sum + sale.discount, 0)
   const net = sales.reduce((sum, sale) => sum + sale.total, 0)
   const expenseTotal = expenses.reduce((sum, expense) => sum + expense.amount, 0)
   const posSales = sales.filter((sale) => billingTypeOf(sale) === 'POS')
   const dtfSales = sales.filter((sale) => billingTypeOf(sale) === 'DTF')
+  const customerOptions = Array.from(
+    new Map(sales.map((sale) => [sale.phone, { phone: sale.phone, name: sale.customer }])).values(),
+  ).sort((a, b) => a.name.localeCompare(b.name))
+  const activeCustomerPhone = customerOptions.some((customer) => customer.phone === selectedCustomerPhone)
+    ? selectedCustomerPhone
+    : customerOptions[0]?.phone ?? ''
+  const selectedCustomer = customerOptions.find((customer) => customer.phone === activeCustomerPhone)
+  const customerLedgerSales = sales.filter((sale) => (
+    sale.phone === activeCustomerPhone && billingTypeOf(sale) === customerBillingType
+  ))
+  const customerLedgerTotals = customerLedgerSales.reduce(
+    (totals, sale) => ({
+      billed: totals.billed + sale.total,
+      received: totals.received + sale.received,
+      remaining: totals.remaining + sale.remaining,
+      quantity: totals.quantity + sale.items.reduce((sum, item) => sum + item.qty, 0),
+    }),
+    { billed: 0, received: 0, remaining: 0, quantity: 0 },
+  )
+  const customerLedgerRows = customerLedgerSales.map((sale) => [
+    sale.invoice,
+    billingTypeOf(sale) === 'DTF' ? 'DTF Billing' : 'POS Billing',
+    sale.date,
+    sale.time,
+    sale.items.map((item) => item.description).join(', '),
+    sale.items.reduce((sum, item) => sum + item.qty, 0),
+    formatMoney(sale.total, currency),
+    formatMoney(sale.received, currency),
+    formatMoney(sale.remaining, currency),
+    sale.method,
+    sale.paymentStatus,
+    sale.vehicleNumber || '-',
+    sale.reference || '-',
+  ])
   const reportTypes = [
     'Daily Sales Report',
     'Weekly Sales Report',
@@ -3786,7 +4164,10 @@ function ReportsPage({
         : selectedReport === 'Bank Sales Report'
           ? sale.method === 'Bank'
           : true
-      return typeMatches && paymentMatches
+      const customerMatches = selectedReport === 'Customer Sales Report'
+        ? sale.phone === activeCustomerPhone && billingTypeOf(sale) === customerBillingType
+        : true
+      return typeMatches && paymentMatches && customerMatches
     })
     .map((sale) => [
       sale.invoice,
@@ -3801,7 +4182,14 @@ function ReportsPage({
   const stockProducts = selectedReport === 'Low Stock Report' ? products.filter((product) => product.stock <= product.minStock) : products
   const isStockReport = selectedReport === 'Stock Report' || selectedReport === 'Low Stock Report'
   const isExpenseReport = selectedReport === 'Expense Report'
-  const recordCount = isStockReport ? stockProducts.length : isExpenseReport ? expenses.length : salesReportRows.length
+  const isCustomerReport = selectedReport === 'Customer Sales Report'
+  const recordCount = isStockReport
+    ? stockProducts.length
+    : isExpenseReport
+      ? expenses.length
+      : isCustomerReport
+        ? customerLedgerSales.length
+        : salesReportRows.length
   const printCurrentReport = () => {
     document.body.classList.add('print-report')
     const cleanup = () => {
@@ -3815,6 +4203,30 @@ function ReportsPage({
     }, 80)
   }
   const exportCurrentReport = () => {
+    if (isCustomerReport) {
+      const customerLabel = selectedCustomer
+        ? `${selectedCustomer.name} (${selectedCustomer.phone})`
+        : 'No customer selected'
+      exportFormattedExcel(
+        `afg-${customerBillingType.toLowerCase()}-customer-ledger-${selectedCustomer?.name.toLowerCase().replaceAll(' ', '-') || 'empty'}`,
+        `AFG | ${customerBillingType} Customer Sales Ledger`,
+        `${customerLabel} | ${customerLedgerSales.length} bill${customerLedgerSales.length === 1 ? '' : 's'} | Billed: ${formatMoney(customerLedgerTotals.billed, currency)} | Received: ${formatMoney(customerLedgerTotals.received, currency)} | Balance: ${formatMoney(customerLedgerTotals.remaining, currency)}`,
+        [
+          {
+            title: `${customerBillingType} Billing Ledger`,
+            headers: ['Invoice', 'Billing Type', 'Date', 'Time', 'Items', 'Qty.', 'Billed', 'Received', 'Balance', 'Payment', 'Status', 'Vehicle', 'Reference'],
+            rows: [
+              ...customerLedgerRows,
+              ['', '', '', '', 'TOTAL', customerLedgerTotals.quantity, formatMoney(customerLedgerTotals.billed, currency), formatMoney(customerLedgerTotals.received, currency), formatMoney(customerLedgerTotals.remaining, currency), '', '', '', ''],
+            ],
+            rightAlignedColumns: [5, 6, 7, 8],
+            centerAlignedColumns: [0, 1, 2, 3, 9, 10, 11],
+            highlightLastRow: true,
+          },
+        ],
+      )
+      return
+    }
     if (isStockReport) {
       exportToExcel(
         `afg-${selectedReport.toLowerCase().replaceAll(' ', '-')}`,
@@ -3901,7 +4313,7 @@ function ReportsPage({
       </section>
       <section className="panel wide report-table-panel">
         <div className="billing-report-tabs">
-          {billingTypes.includes('POS') && (
+          {!isCustomerReport && billingTypes.includes('POS') && (
             <button
               className={selectedReport === 'POS Billing Report' ? 'billing-report-tab pos active' : 'billing-report-tab pos'}
               onClick={() => setSelectedReport('POS Billing Report')}
@@ -3909,7 +4321,7 @@ function ReportsPage({
               <ShoppingCart size={16} /> POS Billing
             </button>
           )}
-          {billingTypes.includes('DTF') && (
+          {!isCustomerReport && billingTypes.includes('DTF') && (
             <button
               className={selectedReport === 'DTF Billing Report' ? 'billing-report-tab dtf active' : 'billing-report-tab dtf'}
               onClick={() => setSelectedReport('DTF Billing Report')}
@@ -3917,14 +4329,53 @@ function ReportsPage({
               <ReceiptText size={16} /> DTF Billing
             </button>
           )}
+          {isCustomerReport && billingTypes.includes('POS') && (
+            <button
+              className={customerBillingType === 'POS' ? 'billing-report-tab pos active' : 'billing-report-tab pos'}
+              onClick={() => setCustomerBillingType('POS')}
+            >
+              <ShoppingCart size={16} /> POS Customer Ledger
+            </button>
+          )}
+          {isCustomerReport && billingTypes.includes('DTF') && (
+            <button
+              className={customerBillingType === 'DTF' ? 'billing-report-tab dtf active' : 'billing-report-tab dtf'}
+              onClick={() => setCustomerBillingType('DTF')}
+            >
+              <ReceiptText size={16} /> DTF Customer Ledger
+            </button>
+          )}
           <button className="primary-btn export-btn billing-report-export" onClick={exportCurrentReport}>
             <Download size={16} /> Export Excel
           </button>
         </div>
+        {isCustomerReport && (
+          <div className="customer-ledger-controls screen-only">
+            <label>
+              Select Customer
+              <select value={activeCustomerPhone} onChange={(event) => setSelectedCustomerPhone(event.target.value)}>
+                {customerOptions.length ? (
+                  customerOptions.map((customer) => (
+                    <option value={customer.phone} key={customer.phone}>
+                      {customer.name} · {customer.phone}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">No customers available</option>
+                )}
+              </select>
+            </label>
+            <p>Choose a customer and billing type to view the complete invoice ledger.</p>
+          </div>
+        )}
         <div className="panel-title">
           <div>
             <h3>{selectedReport}</h3>
-            <p className="report-subtitle">{recordCount} record{recordCount === 1 ? '' : 's'} available</p>
+            <p className="report-subtitle">
+              {isCustomerReport && selectedCustomer
+                ? `${selectedCustomer.name} · ${selectedCustomer.phone} · ${customerBillingType} billing`
+                : `${recordCount} record${recordCount === 1 ? '' : 's'} available`}
+            </p>
           </div>
           <span className="report-count">{recordCount}</span>
           <button className="ghost-btn export-btn screen-only" onClick={printCurrentReport}>
@@ -3956,6 +4407,46 @@ function ReportsPage({
               expense.notes,
             ])}
           />
+        ) : isCustomerReport ? (
+          <>
+            <div className="customer-ledger-summary">
+              <div>
+                <span>Customer</span>
+                <strong>{selectedCustomer?.name || 'No customer selected'}</strong>
+                <small>{selectedCustomer?.phone || '-'}</small>
+              </div>
+              <div>
+                <span>Total Bills</span>
+                <strong>{customerLedgerSales.length}</strong>
+                <small>{customerBillingType} billing</small>
+              </div>
+              <div>
+                <span>Total Quantity</span>
+                <strong>{customerLedgerTotals.quantity}</strong>
+                <small>pieces</small>
+              </div>
+              <div>
+                <span>Total Billed</span>
+                <strong>{formatMoney(customerLedgerTotals.billed, currency)}</strong>
+                <small>ledger value</small>
+              </div>
+              <div>
+                <span>Received</span>
+                <strong>{formatMoney(customerLedgerTotals.received, currency)}</strong>
+                <small>payments</small>
+              </div>
+              <div className="balance">
+                <span>Outstanding</span>
+                <strong>{formatMoney(customerLedgerTotals.remaining, currency)}</strong>
+                <small>remaining balance</small>
+              </div>
+            </div>
+            <DataTable
+              className="customer-ledger-table"
+              headers={['Invoice', 'Billing Type', 'Date', 'Time', 'Items', 'Qty.', 'Billed', 'Received', 'Balance', 'Payment', 'Status', 'Vehicle', 'Reference']}
+              rows={customerLedgerRows}
+            />
+          </>
         ) : (
           <DataTable
             headers={['Invoice', 'Billing Type', 'Date', 'Customer', 'Payment', 'Payment Status', 'Qty.', 'Net Total']}

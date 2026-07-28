@@ -4138,6 +4138,225 @@ td {
   border-radius: 0;
 }
 
+.sale-edit-modal {
+  width: min(1080px, 100%);
+  max-height: calc(100svh - 32px);
+  overflow: auto;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28);
+}
+
+.sale-edit-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sale-edit-header h3 {
+  margin: 7px 0 2px;
+  color: var(--blue);
+}
+
+.sale-edit-header p,
+.customer-ledger-controls p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sale-edit-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sale-edit-fields label,
+.sale-edit-item label,
+.sale-edit-remarks,
+.customer-ledger-controls label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.sale-edit-items {
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sale-edit-item-list {
+  overflow-x: auto;
+}
+
+.sale-edit-item {
+  display: grid;
+  grid-template-columns: 28px minmax(190px, 2fr) 110px 82px 108px 120px 36px;
+  align-items: end;
+  gap: 10px;
+  min-width: 820px;
+  padding: 11px 0;
+  border-top: 1px solid var(--border);
+}
+
+.sale-edit-item-number {
+  align-self: center;
+  color: var(--muted);
+  font-weight: 900;
+  text-align: center;
+}
+
+.sale-edit-item > strong {
+  align-self: center;
+  color: var(--blue);
+  text-align: right;
+}
+
+.sale-edit-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  gap: 20px;
+  padding: 18px 20px;
+}
+
+.sale-edit-remarks textarea {
+  min-height: 116px;
+  resize: vertical;
+}
+
+.sale-edit-totals {
+  padding: 4px 0;
+}
+
+.sale-edit-error {
+  margin: 0;
+  padding: 0 20px 14px;
+}
+
+.customer-ledger-controls {
+  display: flex;
+  align-items: end;
+  gap: 18px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.customer-ledger-controls label {
+  width: min(360px, 100%);
+  color: var(--blue);
+}
+
+.customer-ledger-controls p {
+  padding-bottom: 10px;
+}
+
+.customer-ledger-summary {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin-bottom: 14px;
+  border-block: 1px solid var(--border);
+  background: #f8fafc;
+}
+
+.customer-ledger-summary > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 13px 12px;
+  border-right: 1px solid var(--border);
+}
+
+.customer-ledger-summary > div:last-child {
+  border-right: 0;
+}
+
+.customer-ledger-summary span,
+.customer-ledger-summary small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.customer-ledger-summary strong {
+  color: var(--blue);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.customer-ledger-summary .balance strong {
+  color: var(--red);
+}
+
+.customer-ledger-table table {
+  min-width: 1500px;
+}
+
+@media screen and (max-width: 940px) {
+  .sale-edit-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .customer-ledger-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .customer-ledger-summary > div:nth-child(3) {
+    border-right: 0;
+  }
+}
+
+@media screen and (max-width: 760px) {
+  .sale-edit-modal {
+    max-height: calc(100svh - 24px);
+  }
+
+  .sale-edit-header,
+  .sale-edit-fields,
+  .sale-edit-items,
+  .sale-edit-footer {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .sale-edit-fields,
+  .sale-edit-footer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .customer-ledger-controls {
+    display: grid;
+    align-items: stretch;
+    gap: 7px;
+  }
+
+  .customer-ledger-controls p {
+    padding-bottom: 0;
+  }
+
+  .customer-ledger-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .customer-ledger-summary > div,
+  .customer-ledger-summary > div:nth-child(3) {
+    border-right: 1px solid var(--border);
+  }
+
+  .customer-ledger-summary > div:nth-child(2n) {
+    border-right: 0;
+  }
+}
+
 @media print {
   body.print-staff .sidebar,
   body.print-staff .topbar,
