@@ -39,7 +39,7 @@ import './App.css'
 type Page =
   | 'Dashboard'
   | 'POS Billing'
-  | 'DTF Billing'
+  | 'DTG Billing'
   | 'Sales'
   | 'Customers'
   | 'Inventory'
@@ -71,7 +71,7 @@ type LoginAttempt = {
   lockedUntil: number
 }
 
-const permissionOptions: Page[] = ['Dashboard', 'POS Billing', 'DTF Billing', 'Sales', 'Customers', 'Inventory', 'Expenses', 'Staff', 'Salary', 'Attendance', 'Reports', 'Users', 'Settings']
+const permissionOptions: Page[] = ['Dashboard', 'POS Billing', 'DTG Billing', 'Sales', 'Customers', 'Inventory', 'Expenses', 'Staff', 'Salary', 'Attendance', 'Reports', 'Users', 'Settings']
 
 type Product = {
   id: string
@@ -166,6 +166,9 @@ type CartItem = {
   description: string
   article: string
   image?: string
+  position?: string
+  width?: number
+  height?: number
   qty: number
   rate: number
 }
@@ -179,6 +182,7 @@ type Sale = {
   vehicleNumber?: string
   items: CartItem[]
   subtotal: number
+  pretreatmentCharge?: number
   discount: number
   total: number
   received: number
@@ -272,9 +276,10 @@ const loadUserAccounts = (): UserAccount[] => {
 const loadRolePermissions = (): Record<ManagedRole, Page[]> => {
   try {
     const saved = window.localStorage.getItem('afg-role-permissions')
-    const parsed = saved ? JSON.parse(saved) as Partial<Record<ManagedRole, Page[]>> : null
+    const parsed = saved ? JSON.parse(saved) as Partial<Record<ManagedRole, string[]>> : null
     if (parsed?.Admin) {
-      const savedPages = parsed.Admin.filter((page): page is Page => permissionOptions.includes(page))
+      const migratedPages = parsed.Admin.map((page) => page === 'DTF Billing' ? 'DTG Billing' : page)
+      const savedPages = migratedPages.filter((page): page is Page => permissionOptions.includes(page as Page))
       const hadLegacyFullAccess = permissionOptions
         .filter((page) => page !== 'Customers')
         .every((page) => savedPages.includes(page))
@@ -318,15 +323,19 @@ const signedOutSession: AppSession = {
 
 const loadAppSession = (): AppSession => {
   try {
-    const saved = window.localStorage.getItem(appSessionStorageKey)
+    // Authentication belongs to the current app window only. Remove sessions
+    // saved by older versions so reopening the app always requires a login.
+    window.localStorage.removeItem(appSessionStorageKey)
+    const saved = window.sessionStorage.getItem(appSessionStorageKey)
     const parsed = saved ? JSON.parse(saved) as Partial<AppSession> : null
     if (!parsed?.authenticated || !parsed.currentUserId) return signedOutSession
     const account = loadUserAccounts().find((user) => user.id === parsed.currentUserId && user.status === 'Active')
     if (!account) return signedOutSession
     const allowedPages = account.role === 'Owner' ? permissionOptions : loadRolePermissions().Admin
     if (!allowedPages.length) return signedOutSession
-    const restoredPage = parsed.page && allowedPages.includes(parsed.page)
-      ? parsed.page
+    const requestedPage = (parsed.page as string) === 'DTF Billing' ? 'DTG Billing' : parsed.page
+    const restoredPage = requestedPage && allowedPages.includes(requestedPage as Page)
+      ? requestedPage as Page
       : allowedPages.includes('Dashboard') ? 'Dashboard' : allowedPages[0]
     return {
       authenticated: true,
@@ -341,11 +350,12 @@ const loadAppSession = (): AppSession => {
 
 const persistAppSession = (session: AppSession) => {
   try {
+    window.localStorage.removeItem(appSessionStorageKey)
     if (!session.authenticated || !session.currentUserId) {
-      window.localStorage.removeItem(appSessionStorageKey)
+      window.sessionStorage.removeItem(appSessionStorageKey)
       return
     }
-    window.localStorage.setItem(appSessionStorageKey, JSON.stringify(session))
+    window.sessionStorage.setItem(appSessionStorageKey, JSON.stringify(session))
   } catch {
     // The login screen remains available when a browser blocks saved sessions.
   }
@@ -355,12 +365,13 @@ const defaultLogo = '/afg-logo.jpg'
 
 const companySettingsStorageKey = 'afg-company-settings'
 const companySettingsVersionKey = 'afg-company-settings-version'
-const companySettingsVersion = '2026-07-official-brand'
+const companySettingsVersion = '2026-07-official-address'
 
 const officialCompanyIdentity = {
   logo: defaultLogo,
   companyName: 'Al-Fateh Garments',
   businessName: 'AFG',
+  address: '16km, Opposite Kamahan Metro Bus Station, Ferozpur Road, Lahore, Pakistan',
   phone: '+92 3008505088',
   whatsapp: '+92 3008505088',
   email: 'alfatehgarments2009@gmail.com',
@@ -370,7 +381,6 @@ const officialCompanyIdentity = {
 
 const defaultCompanySettings: CompanySettings = {
   ...officialCompanyIdentity,
-  address: 'Company address from Settings, Pakistan',
   ntn: '',
   strn: '',
   footerMessage: 'Quality garments, reliable service.',
@@ -537,12 +547,19 @@ const attendanceStatusForTimes = (checkIn: string, checkOut: string, shiftStart:
   return attendanceStatusForCheckIn(checkIn, shiftStart) || 'Present'
 }
 
-const amountOf = (item: CartItem) => item.qty * item.rate
+const isCustomPrintItem = (item: CartItem) => item.article === 'DTG' || item.article === 'DTF'
 
-const billingTypeOf = (sale: Sale): 'DTF' | 'POS' =>
-  sale.items.length > 0 && sale.items.every((item) => item.article === 'DTF') ? 'DTF' : 'POS'
+const amountOf = (item: CartItem) => {
+  if (isCustomPrintItem(item) && Number(item.width) > 0 && Number(item.height) > 0) {
+    return Number(item.width) * Number(item.height) * item.qty * item.rate
+  }
+  return item.qty * item.rate
+}
 
-type CustomerBillingCategory = 'POS' | 'DTF'
+const billingTypeOf = (sale: Sale): 'DTG' | 'POS' =>
+  sale.items.length > 0 && sale.items.every(isCustomPrintItem) ? 'DTG' : 'POS'
+
+type CustomerBillingCategory = 'POS' | 'DTG'
 
 type CustomerLedgerProfile = {
   phone: string
@@ -716,6 +733,8 @@ function App() {
   const [dtfVehicleNumber, setDtfVehicleNumber] = useState('')
   const [dtfRemarks, setDtfRemarks] = useState('')
   const [dtfCart, setDtfCart] = useState<CartItem[]>([])
+  const [dtgPretreatment, setDtgPretreatment] = useState('')
+  const [dtgDiscount, setDtgDiscount] = useState('')
   const [dtfReceived, setDtfReceived] = useState('')
   const [dtfPaymentMethod, setDtfPaymentMethod] = useState<PaymentMethod>('Cash')
   const [dtfPaymentStatus, setDtfPaymentStatus] = useState<PaymentStatus>('Paid')
@@ -806,7 +825,9 @@ function App() {
   const change = Math.max(0, receivedAmount - grandTotal)
   const dtfSubtotal = dtfCart.reduce((sum, item) => sum + amountOf(item), 0)
   const dtfTotalQty = dtfCart.reduce((sum, item) => sum + item.qty, 0)
-  const dtfGrandTotal = dtfSubtotal
+  const dtgPretreatmentAmount = Math.max(0, Number(dtgPretreatment) || 0)
+  const dtgDiscountAmount = Math.max(0, Number(dtgDiscount) || 0)
+  const dtfGrandTotal = Math.max(0, dtfSubtotal + dtgPretreatmentAmount - dtgDiscountAmount)
   const dtfReceivedAmount = Math.max(0, Number(dtfReceived) || 0)
   const dtfRemaining = Math.max(0, dtfGrandTotal - dtfReceivedAmount)
   const dtfChange = Math.max(0, dtfReceivedAmount - dtfGrandTotal)
@@ -814,11 +835,11 @@ function App() {
   const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0)
   const cashSales = sales.filter((sale) => sale.method === 'Cash').reduce((sum, sale) => sum + sale.total, 0)
   const bankSales = sales.filter((sale) => sale.method === 'Bank').reduce((sum, sale) => sum + sale.total, 0)
-  const allowedBillingTypes: Array<'POS' | 'DTF'> = role === 'Owner'
-    ? ['POS', 'DTF']
+  const allowedBillingTypes: Array<'POS' | 'DTG'> = role === 'Owner'
+    ? ['POS', 'DTG']
     : [
         ...(rolePermissions.Admin.includes('POS Billing') ? ['POS' as const] : []),
-        ...(rolePermissions.Admin.includes('DTF Billing') ? ['DTF' as const] : []),
+        ...(rolePermissions.Admin.includes('DTG Billing') ? ['DTG' as const] : []),
       ]
   const visibleSales = sales.filter((sale) => allowedBillingTypes.includes(billingTypeOf(sale)))
   const saleCustomerName = customerName.trim() || 'Walk-in Customer'
@@ -880,7 +901,7 @@ function App() {
     reference: reference.trim() || undefined,
   }
 
-  const currentDtfSale: Sale = {
+  const currentDtgSale: Sale = {
     invoice: invoiceNumber,
     date: dateText,
     time: timeText,
@@ -889,7 +910,8 @@ function App() {
     vehicleNumber: dtfVehicleNumber.trim() || undefined,
     items: dtfCart,
     subtotal: dtfSubtotal,
-    discount: 0,
+    pretreatmentCharge: dtgPretreatmentAmount,
+    discount: dtgDiscountAmount,
     total: dtfGrandTotal,
     received: dtfReceivedAmount,
     remaining: dtfRemaining,
@@ -966,11 +988,11 @@ function App() {
   const hasDtfCustomerDetails = () => {
     const phoneDigits = dtfCustomerPhone.replace(/\D/g, '')
     if (!dtfCustomerName.trim()) {
-      notify('Enter DTF customer name before continuing.')
+      notify('Enter DTG customer name before continuing.')
       return false
     }
     if (phoneDigits.length !== 11) {
-      notify('Enter a valid DTF customer phone number with exactly 11 digits.')
+      notify('Enter a valid DTG customer phone number with exactly 11 digits.')
       return false
     }
     return true
@@ -1064,7 +1086,16 @@ function App() {
     if (!hasDtfCustomerDetails()) return
     setDtfCart((items) => [
       ...items,
-      { productId: `DTF-${Date.now()}-${items.length}`, description: '', article: 'DTF', qty: 1, rate: 0 },
+      {
+        productId: `DTG-${Date.now()}-${items.length}`,
+        description: '',
+        article: 'DTG',
+        position: 'Front',
+        width: 0,
+        height: 0,
+        qty: 1,
+        rate: 0,
+      },
     ])
   }
 
@@ -1078,6 +1109,8 @@ function App() {
     setDtfCustomerPhone('')
     setDtfVehicleNumber('')
     setDtfRemarks('')
+    setDtgPretreatment('')
+    setDtgDiscount('')
     setDtfReceived('')
     setDtfPaymentMethod('Cash')
     setDtfPaymentStatus('Paid')
@@ -1161,19 +1194,26 @@ function App() {
   const saveDtfSale = (print = false) => {
     if (!hasDtfCustomerDetails()) return
     if (!dtfCart.length) {
-      notify('Add at least one DTF item before saving.')
+      notify('Add at least one DTG print item before saving.')
       return
     }
-    if (dtfCart.some((item) => !item.description.trim() || item.qty <= 0 || item.rate < 0)) {
-      notify('Complete each DTF item name, quantity, and rate before saving.')
+    if (dtfCart.some((item) => (
+      !item.description.trim()
+      || !item.position?.trim()
+      || Number(item.width) <= 0
+      || Number(item.height) <= 0
+      || item.qty <= 0
+      || item.rate < 0
+    ))) {
+      notify('Complete every DTG item with a name, print position, width, height, quantity, and rate.')
       return
     }
     if (print && dtfReceivedAmount <= 0) {
-      notify('Enter the received amount before printing the DTF bill.')
+      notify('Enter the received amount before printing the DTG bill.')
       return
     }
     if (print && !hasVehicleNumber(dtfVehicleNumber)) return
-    const sale = { ...currentDtfSale, items: dtfCart.map((item) => ({ ...item })) }
+    const sale = { ...currentDtgSale, items: dtfCart.map((item) => ({ ...item })) }
     setSales((rows) => [sale, ...rows])
     setCustomers((rows) => {
       const found = rows.some((customer) => customer.phone === sale.phone)
@@ -1205,7 +1245,7 @@ function App() {
     setInvoiceSequence((value) => value + 1)
     setPreviewSale(sale)
     clearDtfBill()
-    notify('DTF bill completed successfully.')
+    notify('DTG bill completed successfully.')
     if (print) window.setTimeout(() => window.print(), 200)
   }
 
@@ -1363,7 +1403,7 @@ function App() {
             [
               ['Dashboard', LayoutDashboard],
                ['POS Billing', ShoppingCart],
-               ['DTF Billing', ReceiptText],
+               ['DTG Billing', ReceiptText],
                ['Sales', ReceiptText],
                ['Customers', Users],
                ['Inventory', Boxes],
@@ -1525,8 +1565,8 @@ function App() {
               userName={currentUserName}
             />
           )}
-          {page === 'DTF Billing' && (
-            <DTFBilling
+          {page === 'DTG Billing' && (
+            <DTGBilling
               invoiceNumber={invoiceNumber}
               settings={settings}
               items={dtfCart}
@@ -1541,7 +1581,19 @@ function App() {
               addItem={addDtfItem}
               updateItem={updateDtfItem}
               removeItem={(id) => setDtfCart((items) => items.filter((item) => item.productId !== id))}
-              totals={{ totalQty: dtfTotalQty, subtotal: dtfSubtotal, grandTotal: dtfGrandTotal, remaining: dtfRemaining, change: dtfChange }}
+              totals={{
+                totalQty: dtfTotalQty,
+                subtotal: dtfSubtotal,
+                pretreatment: dtgPretreatmentAmount,
+                discount: dtgDiscountAmount,
+                grandTotal: dtfGrandTotal,
+                remaining: dtfRemaining,
+                change: dtfChange,
+              }}
+              pretreatment={dtgPretreatment}
+              setPretreatment={setDtgPretreatment}
+              discount={dtgDiscount}
+              setDiscount={setDtgDiscount}
               received={dtfReceived}
               setReceived={setDtfReceived}
               paymentMethod={dtfPaymentMethod}
@@ -1554,8 +1606,16 @@ function App() {
               setReference={setDtfReference}
               saveSale={saveDtfSale}
               preview={() => {
-                if (hasDtfCustomerDetails() && dtfCart.length && !dtfCart.some((item) => !item.description.trim() || item.qty <= 0 || item.rate < 0)) {
-                  setPreviewSale(currentDtfSale)
+                const hasInvalidItem = dtfCart.some((item) => (
+                  !item.description.trim()
+                  || !item.position?.trim()
+                  || Number(item.width) <= 0
+                  || Number(item.height) <= 0
+                  || item.qty <= 0
+                  || item.rate < 0
+                ))
+                if (hasDtfCustomerDetails() && dtfCart.length && !hasInvalidItem) {
+                  setPreviewSale(currentDtgSale)
                 }
               }}
               clear={clearDtfBill}
@@ -1676,7 +1736,7 @@ function App() {
                     .filter((sale) => `${sale.invoice} ${sale.customer} ${sale.phone}`.toLowerCase().includes(salesSearch.toLowerCase()))
                     .map((sale) => [
                       sale.invoice,
-                      billingTypeOf(sale) === 'DTF' ? 'DTF Billing' : 'POS Billing',
+                      billingTypeOf(sale) === 'DTG' ? 'DTG Billing' : 'POS Billing',
                       sale.date,
                       sale.time,
                       sale.customer,
@@ -1698,7 +1758,7 @@ function App() {
                 setSales((rows) => rows.filter((item) => item.invoice !== invoice))
                 recordDeletion(
                   'Sale',
-                  `Invoice: ${sale.invoice} | Billing: ${billingTypeOf(sale)} | Customer: ${sale.customer} | Phone: ${sale.phone} | Vehicle: ${sale.vehicleNumber || '-'} | Items: ${sale.items.map((item) => `${item.description} (${item.qty} x ${formatMoney(item.rate, settings.currency)} = ${formatMoney(amountOf(item), settings.currency)})`).join('; ') || '-'} | Subtotal: ${formatMoney(sale.subtotal, settings.currency)} | Discount: ${formatMoney(sale.discount, settings.currency)} | Total: ${formatMoney(sale.total, settings.currency)} | Received: ${formatMoney(sale.received, settings.currency)} | Remaining: ${formatMoney(sale.remaining, settings.currency)} | Payment: ${sale.method}${sale.bankName ? ` / ${sale.bankName}` : ''} | Status: ${sale.paymentStatus} | Reference: ${sale.reference || '-'} | Remarks: ${sale.remarks || '-'} | Processed by: ${sale.cashier}`,
+                  `Invoice: ${sale.invoice} | Billing: ${billingTypeOf(sale)} | Customer: ${sale.customer} | Phone: ${sale.phone} | Vehicle: ${sale.vehicleNumber || '-'} | Items: ${sale.items.map((item) => `${item.description}${item.position ? ` / ${item.position}` : ''} (${item.width && item.height ? `${item.width} x ${item.height} in, ` : ''}${item.qty} pcs x ${formatMoney(item.rate, settings.currency)} = ${formatMoney(amountOf(item), settings.currency)})`).join('; ') || '-'} | Subtotal: ${formatMoney(sale.subtotal, settings.currency)} | Pretreatment: ${formatMoney(sale.pretreatmentCharge || 0, settings.currency)} | Discount: ${formatMoney(sale.discount, settings.currency)} | Total: ${formatMoney(sale.total, settings.currency)} | Received: ${formatMoney(sale.received, settings.currency)} | Remaining: ${formatMoney(sale.remaining, settings.currency)} | Payment: ${sale.method}${sale.bankName ? ` / ${sale.bankName}` : ''} | Status: ${sale.paymentStatus} | Reference: ${sale.reference || '-'} | Remarks: ${sale.remarks || '-'} | Processed by: ${sale.cashier}`,
                 )
               }}
             />
@@ -2133,7 +2193,7 @@ function POS(props: {
   )
 }
 
-function DTFBilling(props: {
+function DTGBilling(props: {
   invoiceNumber: string
   settings: CompanySettings
   items: CartItem[]
@@ -2148,7 +2208,19 @@ function DTFBilling(props: {
   addItem: () => void
   updateItem: (id: string, changes: Partial<CartItem>) => void
   removeItem: (id: string) => void
-  totals: { totalQty: number; subtotal: number; grandTotal: number; remaining: number; change: number }
+  totals: {
+    totalQty: number
+    subtotal: number
+    pretreatment: number
+    discount: number
+    grandTotal: number
+    remaining: number
+    change: number
+  }
+  pretreatment: string
+  setPretreatment: (value: string) => void
+  discount: string
+  setDiscount: (value: string) => void
   received: string
   setReceived: (value: string) => void
   paymentMethod: PaymentMethod
@@ -2165,7 +2237,7 @@ function DTFBilling(props: {
   userName: string
 }) {
   return (
-    <div className="pos-layout dtf-billing">
+    <div className="pos-layout dtg-billing">
       <section className="pos-main">
         <div className="customer-strip">
           <label>
@@ -2204,66 +2276,109 @@ function DTFBilling(props: {
         </div>
         <div className="dtf-entry-toolbar">
           <div>
-            <strong>Custom DTF Items</strong>
-            <span>Write the item name, PCS quantity, and rate yourself.</span>
+            <strong>DTG Print Positions</strong>
+            <span>Amount = width x height x quantity x rate per square inch.</span>
           </div>
           <button className="primary-btn" type="button" onClick={props.addItem}>
-            <Plus size={17} /> Add Item
+            <Plus size={17} /> Add Print Position
           </button>
         </div>
         <div className="table-wrap billing-table dtf-table">
           <table>
             <thead>
               <tr>
-                <th>No.</th>
-                <th>Item Name</th>
-                <th>PCS Qty.</th>
-                <th>Rate</th>
-                <th>Amount</th>
-                <th className="screen-only">Action</th>
+                 <th>No.</th>
+                 <th>Item Name</th>
+                 <th>Print Position</th>
+                 <th>Width (in)</th>
+                 <th>Height (in)</th>
+                 <th>Qty.</th>
+                 <th>Rate / sq in</th>
+                 <th>Area / Piece</th>
+                 <th>Amount</th>
+                 <th className="screen-only">Action</th>
               </tr>
             </thead>
             <tbody>
-              {props.items.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="empty-cell">
-                    Add a custom DTF item to begin billing.
-                  </td>
+               {props.items.length === 0 && (
+                 <tr>
+                   <td colSpan={10} className="empty-cell">
+                     Add a DTG print position to begin billing.
+                   </td>
                 </tr>
               )}
               {props.items.map((item, index) => (
                 <tr key={item.productId}>
                   <td data-label="No.">{index + 1}</td>
-                  <td data-label="Item Name">
+                   <td data-label="Item Name">
                     <input
                       value={item.description}
                       placeholder="Write item name"
                       onChange={(event) => props.updateItem(item.productId, { description: event.target.value })}
                     />
-                  </td>
-                  <td data-label="PCS Qty.">
-                    <QuantityInput value={item.qty} onChange={(value) => props.updateItem(item.productId, { qty: value })} />
-                  </td>
-                  <td data-label="Rate">
-                    <input
-                      type="number"
-                      min={0}
-                      placeholder="Rate"
-                      value={item.rate || ''}
-                      onChange={(event) => props.updateItem(item.productId, { rate: Math.max(0, Number(event.target.value)) })}
-                    />
-                  </td>
-                  <td data-label="Amount">{formatMoney(amountOf(item), props.settings.currency)}</td>
-                  <td className="screen-only" data-label="Action">
-                    <button className="icon-btn danger" type="button" onClick={() => props.removeItem(item.productId)} aria-label="Delete DTF item">
-                      <Trash2 size={17} />
+                   </td>
+                   <td data-label="Print Position">
+                     <input
+                       list="dtg-print-positions"
+                       value={item.position || ''}
+                       placeholder="Front, back, sleeve..."
+                       onChange={(event) => props.updateItem(item.productId, { position: event.target.value })}
+                     />
+                   </td>
+                   <td data-label="Width (in)">
+                     <input
+                       type="number"
+                       min={0}
+                       step="0.01"
+                       placeholder="Width"
+                       value={item.width || ''}
+                       onChange={(event) => props.updateItem(item.productId, { width: Math.max(0, Number(event.target.value)) })}
+                     />
+                   </td>
+                   <td data-label="Height (in)">
+                     <input
+                       type="number"
+                       min={0}
+                       step="0.01"
+                       placeholder="Height"
+                       value={item.height || ''}
+                       onChange={(event) => props.updateItem(item.productId, { height: Math.max(0, Number(event.target.value)) })}
+                     />
+                   </td>
+                   <td data-label="Qty.">
+                     <QuantityInput value={item.qty} onChange={(value) => props.updateItem(item.productId, { qty: value })} />
+                   </td>
+                   <td data-label="Rate / sq in">
+                     <input
+                       type="number"
+                       min={0}
+                       step="0.01"
+                       placeholder="Rate / sq in"
+                       value={item.rate || ''}
+                       onChange={(event) => props.updateItem(item.productId, { rate: Math.max(0, Number(event.target.value)) })}
+                     />
+                   </td>
+                   <td data-label="Area / Piece">{(Number(item.width) * Number(item.height)).toLocaleString()} sq in</td>
+                   <td data-label="Amount">{formatMoney(amountOf(item), props.settings.currency)}</td>
+                   <td className="screen-only" data-label="Action">
+                     <button className="icon-btn danger" type="button" onClick={() => props.removeItem(item.productId)} aria-label="Delete DTG print position">
+                       <Trash2 size={17} />
                     </button>
                   </td>
                 </tr>
               ))}
-            </tbody>
-          </table>
-        </div>
+           </tbody>
+         </table>
+         <datalist id="dtg-print-positions">
+           <option value="Front" />
+           <option value="Back" />
+           <option value="Left Chest" />
+           <option value="Right Chest" />
+           <option value="Left Sleeve" />
+           <option value="Right Sleeve" />
+           <option value="Neck Label" />
+         </datalist>
+       </div>
         <div className="dtf-remarks-row">
           <label>
             Remarks
@@ -2278,9 +2393,33 @@ function DTFBilling(props: {
       </section>
 
       <aside className="bill-summary">
-        <h3>DTF Bill Summary</h3>
+        <h3>DTG Bill Summary</h3>
         <SummaryLine label="Total PCS" value={`${props.totals.totalQty}`} />
         <SummaryLine label="Subtotal" value={formatMoney(props.totals.subtotal, props.settings.currency)} />
+        <label>
+          Pretreatment Charges
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            placeholder="Enter pretreatment charges"
+            value={props.pretreatment}
+            onChange={(event) => props.setPretreatment(sanitizeAmountInput(event.target.value))}
+          />
+        </label>
+        <label>
+          Discount
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            placeholder="Enter discount"
+            value={props.discount}
+            onChange={(event) => props.setDiscount(sanitizeAmountInput(event.target.value))}
+          />
+        </label>
+        {props.totals.pretreatment > 0 && <SummaryLine label="Pretreatment" value={formatMoney(props.totals.pretreatment, props.settings.currency)} />}
+        {props.totals.discount > 0 && <SummaryLine label="Discount" value={`- ${formatMoney(props.totals.discount, props.settings.currency)}`} />}
         <SummaryLine label="Grand Total" value={formatMoney(props.totals.grandTotal, props.settings.currency)} strong />
         <label>
           Received Amount
@@ -2329,7 +2468,7 @@ function DTFBilling(props: {
             <Printer size={17} /> Save & Print
           </button>
           <button onClick={() => props.saveSale(false)}>
-            <Save size={17} /> Save DTF Bill
+            <Save size={17} /> Save DTG Bill
           </button>
           <button onClick={props.preview}>
             <Eye size={17} /> Preview Invoice
@@ -2500,15 +2639,15 @@ function Inventory(props: {
 function BillingTypeSummary({
   sales,
   currency,
-  billingTypes = ['POS', 'DTF'],
+  billingTypes = ['POS', 'DTG'],
 }: {
   sales: Sale[]
   currency: string
-  billingTypes?: Array<'POS' | 'DTF'>
+  billingTypes?: Array<'POS' | 'DTG'>
 }) {
   const types = [
     { type: 'POS' as const, label: 'POS Billing', detail: 'Product sales', Icon: ShoppingCart },
-    { type: 'DTF' as const, label: 'DTF Billing', detail: 'Custom print sales', Icon: ReceiptText },
+    { type: 'DTG' as const, label: 'DTG Billing', detail: 'Direct-to-garment printing', Icon: ReceiptText },
   ].filter(({ type }) => billingTypes.includes(type))
   return (
     <div className="billing-type-summary">
@@ -2533,7 +2672,7 @@ function BillingTypeSummary({
 
 function SalesPage(props: {
   sales: Sale[]
-  billingTypes: Array<'POS' | 'DTF'>
+  billingTypes: Array<'POS' | 'DTG'>
   search: string
   setSearch: (value: string) => void
   preview: (sale: Sale) => void
@@ -2566,7 +2705,7 @@ function SalesPage(props: {
           headers={['Invoice Number', 'Billing Type', 'Date', 'Time', 'Customer', 'Phone', 'Total Quantity', 'Grand Total', 'Paid Amount', 'Remaining Amount', 'Payment Method', 'Processed By', 'Actions']}
           rows={props.sales.map((sale) => [
             sale.invoice,
-            <span className={`billing-tag ${billingTypeOf(sale).toLowerCase()}`}>{billingTypeOf(sale) === 'DTF' ? 'DTF Billing' : 'POS Billing'}</span>,
+            <span className={`billing-tag ${billingTypeOf(sale).toLowerCase()}`}>{billingTypeOf(sale) === 'DTG' ? 'DTG Billing' : 'POS Billing'}</span>,
             sale.date,
             sale.time,
             sale.customer,
@@ -2614,7 +2753,7 @@ function CustomersPage({
   currency: string
 }) {
   const [category, setCategory] = useState<CustomerBillingCategory>(
-    billingTypes.includes('POS') ? 'POS' : 'DTF',
+    billingTypes.includes('POS') ? 'POS' : 'DTG',
   )
   const [selectedPhone, setSelectedPhone] = useState('')
   const [search, setSearch] = useState('')
@@ -2734,17 +2873,17 @@ function CustomersPage({
                 <ShoppingCart size={17} /> POS Customers
               </button>
             )}
-            {billingTypes.includes('DTF') && (
+            {billingTypes.includes('DTG') && (
               <button
-                className={category === 'DTF' ? 'dtf active' : 'dtf'}
+                className={category === 'DTG' ? 'dtg active' : 'dtg'}
                 type="button"
                 onClick={() => {
-                  setCategory('DTF')
+                  setCategory('DTG')
                   setSelectedPhone('')
                   setStatusFilter('All')
                 }}
               >
-                <ReceiptText size={17} /> DTF Customers
+                <ReceiptText size={17} /> DTG Customers
               </button>
             )}
           </div>
@@ -2911,11 +3050,14 @@ function EditSaleModal({
     items: sale.items.map((item) => ({ ...item })),
   }))
   const [error, setError] = useState('')
-  const isDtf = billingTypeOf(sale) === 'DTF'
+  const isDtg = billingTypeOf(sale) === 'DTG'
   const subtotal = draft.items.reduce((sum, item) => sum + amountOf(item), 0)
+  const pretreatment = isDtg ? Math.max(0, Number(draft.pretreatmentCharge) || 0) : 0
+  const discount = Math.max(0, Number(draft.discount) || 0)
+  const total = Math.max(0, subtotal + pretreatment - discount)
   const received = Math.max(0, Number(draft.received) || 0)
-  const remaining = Math.max(0, subtotal - received)
-  const change = Math.max(0, received - subtotal)
+  const remaining = Math.max(0, total - received)
+  const change = Math.max(0, received - total)
 
   const updateItem = (productId: string, changes: Partial<CartItem>) => {
     setDraft((current) => ({
@@ -2944,11 +3086,18 @@ function EditSaleModal({
       setError('The bill must contain at least one item.')
       return
     }
-    if (draft.items.some((item) => !item.description.trim() || item.qty < 1 || item.rate < 0)) {
-      setError('Complete every item with a valid name, quantity, and rate.')
+    if (draft.items.some((item) => (
+      !item.description.trim()
+      || item.qty < 1
+      || item.rate < 0
+      || (isDtg && (!item.position?.trim() || Number(item.width) <= 0 || Number(item.height) <= 0))
+    ))) {
+      setError(isDtg
+        ? 'Complete every DTG item with a name, position, width, height, quantity, and rate.'
+        : 'Complete every item with a valid name, quantity, and rate.')
       return
     }
-    if (!isDtf) {
+    if (!isDtg) {
       const unavailableItem = draft.items.find((item) => {
         const product = products.find((row) => row.id === item.productId)
         const originalQty = sale.items.find((row) => row.productId === item.productId)?.qty ?? 0
@@ -2967,11 +3116,16 @@ function EditSaleModal({
       items: draft.items.map((item) => ({
         ...item,
         description: item.description.trim(),
+        position: item.position?.trim() || undefined,
+        width: isDtg ? Math.max(0, Number(item.width) || 0) : undefined,
+        height: isDtg ? Math.max(0, Number(item.height) || 0) : undefined,
         qty: Math.max(1, Math.floor(item.qty)),
         rate: Math.max(0, item.rate),
       })),
       subtotal,
-      total: subtotal,
+      pretreatmentCharge: pretreatment,
+      discount,
+      total,
       received,
       remaining,
       change,
@@ -2986,7 +3140,7 @@ function EditSaleModal({
       <section className="sale-edit-modal" aria-label={`Edit ${sale.invoice}`}>
         <div className="sale-edit-header">
           <div>
-            <span className={`billing-tag ${isDtf ? 'dtf' : 'pos'}`}>{isDtf ? 'DTF Billing' : 'POS Billing'}</span>
+            <span className={`billing-tag ${isDtg ? 'dtg' : 'pos'}`}>{isDtg ? 'DTG Billing' : 'POS Billing'}</span>
             <h3>Edit Bill {sale.invoice}</h3>
             <p>{sale.date} · {sale.time} · Processed by {sale.cashier}</p>
           </div>
@@ -3048,6 +3202,30 @@ function EditSaleModal({
             Payment Reference
             <input value={draft.reference || ''} onChange={(event) => setDraft((current) => ({ ...current, reference: event.target.value }))} />
           </label>
+          {isDtg && (
+            <label>
+              Pretreatment Charges
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={draft.pretreatmentCharge || ''}
+                onChange={(event) => setDraft((current) => ({ ...current, pretreatmentCharge: Math.max(0, Number(event.target.value) || 0) }))}
+              />
+            </label>
+          )}
+          {isDtg && (
+            <label>
+              Discount
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={draft.discount || ''}
+                onChange={(event) => setDraft((current) => ({ ...current, discount: Math.max(0, Number(event.target.value) || 0) }))}
+              />
+            </label>
+          )}
         </div>
 
         <div className="sale-edit-items">
@@ -3056,7 +3234,7 @@ function EditSaleModal({
               <h3>Bill Items</h3>
               <p className="report-subtitle">Update quantities and rates. Stock is checked for POS items.</p>
             </div>
-            {isDtf && (
+            {isDtg && (
               <button
                 type="button"
                 onClick={() => setDraft((current) => ({
@@ -3064,9 +3242,12 @@ function EditSaleModal({
                   items: [
                     ...current.items,
                     {
-                      productId: `DTF-EDIT-${Date.now()}`,
+                      productId: `DTG-EDIT-${Date.now()}`,
                       description: '',
-                      article: 'DTF',
+                      article: 'DTG',
+                      position: 'Front',
+                      width: 0,
+                      height: 0,
                       qty: 1,
                       rate: 0,
                     },
@@ -3079,20 +3260,49 @@ function EditSaleModal({
           </div>
           <div className="sale-edit-item-list">
             {draft.items.map((item, index) => (
-              <div className="sale-edit-item" key={item.productId}>
+              <div className={`sale-edit-item ${isDtg ? 'dtg' : ''}`} key={item.productId}>
                 <span className="sale-edit-item-number">{index + 1}</span>
                 <label>
                   Item
                   <input
                     value={item.description}
-                    readOnly={!isDtf}
+                    readOnly={!isDtg}
                     onChange={(event) => updateItem(item.productId, { description: event.target.value })}
                   />
                 </label>
-                <label>
-                  Article
-                  <input value={item.article} readOnly />
-                </label>
+                {isDtg ? (
+                  <>
+                    <label>
+                      Print Position
+                      <input value={item.position || ''} onChange={(event) => updateItem(item.productId, { position: event.target.value })} />
+                    </label>
+                    <label>
+                      Width (in)
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={item.width || ''}
+                        onChange={(event) => updateItem(item.productId, { width: Math.max(0, Number(event.target.value) || 0) })}
+                      />
+                    </label>
+                    <label>
+                      Height (in)
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={item.height || ''}
+                        onChange={(event) => updateItem(item.productId, { height: Math.max(0, Number(event.target.value) || 0) })}
+                      />
+                    </label>
+                  </>
+                ) : (
+                  <label>
+                    Article
+                    <input value={item.article} readOnly />
+                  </label>
+                )}
                 <label>
                   Qty.
                   <input
@@ -3114,7 +3324,7 @@ function EditSaleModal({
                   />
                 </label>
                 <strong>{formatMoney(amountOf(item), currency)}</strong>
-                {isDtf && (
+                {isDtg && (
                   <button
                     className="icon-btn danger-text"
                     type="button"
@@ -3139,7 +3349,10 @@ function EditSaleModal({
             <textarea value={draft.remarks || ''} onChange={(event) => setDraft((current) => ({ ...current, remarks: event.target.value }))} />
           </label>
           <div className="sale-edit-totals">
-            <SummaryLine label="Grand Total" value={formatMoney(subtotal, currency)} strong />
+            <SummaryLine label="Subtotal" value={formatMoney(subtotal, currency)} />
+            {pretreatment > 0 && <SummaryLine label="Pretreatment" value={formatMoney(pretreatment, currency)} />}
+            {discount > 0 && <SummaryLine label="Discount" value={`- ${formatMoney(discount, currency)}`} />}
+            <SummaryLine label="Grand Total" value={formatMoney(total, currency)} strong />
             <SummaryLine label="Received" value={formatMoney(received, currency)} />
             <SummaryLine label="Remaining" value={formatMoney(remaining, currency)} />
             {change > 0 && <SummaryLine label="Change" value={formatMoney(change, currency)} />}
@@ -4430,7 +4643,7 @@ function ReportsPage({
   currency,
 }: {
   sales: Sale[]
-  billingTypes: Array<'POS' | 'DTF'>
+  billingTypes: Array<'POS' | 'DTG'>
   expenses: Expense[]
   products: Product[]
   currency: string
@@ -4438,20 +4651,20 @@ function ReportsPage({
   const [selectedReport, setSelectedReport] = useState(
     billingTypes.includes('POS')
       ? 'POS Billing Report'
-      : billingTypes.includes('DTF')
-        ? 'DTF Billing Report'
+      : billingTypes.includes('DTG')
+        ? 'DTG Billing Report'
         : 'Daily Sales Report',
   )
   const [selectedCustomerPhone, setSelectedCustomerPhone] = useState(sales[0]?.phone ?? '')
-  const [customerBillingType, setCustomerBillingType] = useState<'POS' | 'DTF'>(
-    billingTypes.includes('POS') ? 'POS' : 'DTF',
+  const [customerBillingType, setCustomerBillingType] = useState<'POS' | 'DTG'>(
+    billingTypes.includes('POS') ? 'POS' : 'DTG',
   )
-  const gross = sales.reduce((sum, sale) => sum + sale.subtotal, 0)
+  const gross = sales.reduce((sum, sale) => sum + sale.subtotal + (sale.pretreatmentCharge || 0), 0)
   const discounts = sales.reduce((sum, sale) => sum + sale.discount, 0)
   const net = sales.reduce((sum, sale) => sum + sale.total, 0)
   const expenseTotal = expenses.reduce((sum, expense) => sum + expense.amount, 0)
   const posSales = sales.filter((sale) => billingTypeOf(sale) === 'POS')
-  const dtfSales = sales.filter((sale) => billingTypeOf(sale) === 'DTF')
+  const dtgSales = sales.filter((sale) => billingTypeOf(sale) === 'DTG')
   const customerOptions = customerProfilesFor(sales, customerBillingType)
   const activeCustomerPhone = customerOptions.some((customer) => customer.phone === selectedCustomerPhone)
     ? selectedCustomerPhone
@@ -4473,7 +4686,7 @@ function ReportsPage({
   )
   const customerLedgerRows = customerLedgerSales.map((sale) => [
     sale.invoice,
-    billingTypeOf(sale) === 'DTF' ? 'DTF Billing' : 'POS Billing',
+    billingTypeOf(sale) === 'DTG' ? 'DTG Billing' : 'POS Billing',
     sale.date,
     sale.time,
     sale.items.map((item) => item.description).join(', '),
@@ -4504,8 +4717,8 @@ function ReportsPage({
     .filter((sale) => {
       const typeMatches = selectedReport === 'POS Billing Report'
         ? billingTypeOf(sale) === 'POS'
-        : selectedReport === 'DTF Billing Report'
-          ? billingTypeOf(sale) === 'DTF'
+        : selectedReport === 'DTG Billing Report'
+          ? billingTypeOf(sale) === 'DTG'
           : true
       const paymentMatches = selectedReport === 'Cash Sales Report'
         ? sale.method === 'Cash'
@@ -4519,7 +4732,7 @@ function ReportsPage({
     })
     .map((sale) => [
       sale.invoice,
-      billingTypeOf(sale) === 'DTF' ? 'DTF Billing' : 'POS Billing',
+      billingTypeOf(sale) === 'DTG' ? 'DTG Billing' : 'POS Billing',
       sale.date,
       sale.customer,
       sale.method,
@@ -4639,7 +4852,7 @@ function ReportsPage({
             <span style={{ width: `${net ? Math.min(100, (Math.max(0, net - expenseTotal) / net) * 100) : 0}%` }} />
           </div>
         </div>
-        <BillingTypeSummary sales={[...posSales, ...dtfSales]} currency={currency} billingTypes={billingTypes} />
+        <BillingTypeSummary sales={[...posSales, ...dtgSales]} currency={currency} billingTypes={billingTypes} />
       </section>
       <section className="panel report-types-panel">
         <div className="panel-title">
@@ -4649,7 +4862,7 @@ function ReportsPage({
         <div className="report-type-list">
           {reportTypes.map((report) => (
             <button
-              className={`report-link ${selectedReport === report ? 'active' : ''} ${report === 'DTF Billing Report' ? 'dtf-report-link' : report === 'POS Billing Report' ? 'pos-report-link' : ''}`}
+              className={`report-link ${selectedReport === report ? 'active' : ''} ${report === 'DTG Billing Report' ? 'dtg-report-link' : report === 'POS Billing Report' ? 'pos-report-link' : ''}`}
               key={report}
               onClick={() => setSelectedReport(report)}
             >
@@ -4669,12 +4882,12 @@ function ReportsPage({
               <ShoppingCart size={16} /> POS Billing
             </button>
           )}
-          {!isCustomerReport && billingTypes.includes('DTF') && (
+          {!isCustomerReport && billingTypes.includes('DTG') && (
             <button
-              className={selectedReport === 'DTF Billing Report' ? 'billing-report-tab dtf active' : 'billing-report-tab dtf'}
-              onClick={() => setSelectedReport('DTF Billing Report')}
+              className={selectedReport === 'DTG Billing Report' ? 'billing-report-tab dtg active' : 'billing-report-tab dtg'}
+              onClick={() => setSelectedReport('DTG Billing Report')}
             >
-              <ReceiptText size={16} /> DTF Billing
+              <ReceiptText size={16} /> DTG Billing
             </button>
           )}
           {isCustomerReport && billingTypes.includes('POS') && (
@@ -4685,12 +4898,12 @@ function ReportsPage({
               <ShoppingCart size={16} /> POS Customer Ledger
             </button>
           )}
-          {isCustomerReport && billingTypes.includes('DTF') && (
+          {isCustomerReport && billingTypes.includes('DTG') && (
             <button
-              className={customerBillingType === 'DTF' ? 'billing-report-tab dtf active' : 'billing-report-tab dtf'}
-              onClick={() => setCustomerBillingType('DTF')}
+              className={customerBillingType === 'DTG' ? 'billing-report-tab dtg active' : 'billing-report-tab dtg'}
+              onClick={() => setCustomerBillingType('DTG')}
             >
-              <ReceiptText size={16} /> DTF Customer Ledger
+              <ReceiptText size={16} /> DTG Customer Ledger
             </button>
           )}
           <button className="primary-btn export-btn billing-report-export" onClick={exportCurrentReport}>
@@ -5172,7 +5385,7 @@ function InvoiceModal({ sale, settings, onClose, onPrint }: { sale: Sale; settin
 }
 
 function Invoice({ sale, settings }: { sale: Sale; settings: CompanySettings }) {
-  const isDtfSale = sale.items.length > 0 && sale.items.every((item) => item.article === 'DTF')
+  const isDtgSale = billingTypeOf(sale) === 'DTG'
   return (
     <article className="invoice-print">
       <div className="invoice-corner-label">{settings.businessName} | {settings.companyName} POS</div>
@@ -5194,6 +5407,7 @@ function Invoice({ sale, settings }: { sale: Sale; settings: CompanySettings }) 
         <span>Date: {sale.date}</span>
         <span>Time: {sale.time}</span>
         <span>Processed By: {sale.cashier}</span>
+        <span>Billing: {isDtgSale ? 'DTG' : 'POS'}</span>
         <span>Customer: {sale.customer}</span>
         <span>Phone: {sale.phone}</span>
         {sale.vehicleNumber && <span>Vehicle No: {sale.vehicleNumber}</span>}
@@ -5205,21 +5419,34 @@ function Invoice({ sale, settings }: { sale: Sale; settings: CompanySettings }) 
       </section>
       <table className="invoice-table">
         <thead>
-          <tr>
-            <th>No.</th>
-            <th>Description</th>
-            <th>Article</th>
-            <th>Qty.</th>
-            <th>{isDtfSale ? 'Per Piece Rate' : 'Rate'}</th>
-            <th>Amount</th>
-          </tr>
+          {isDtgSale ? (
+            <tr>
+              <th>No.</th>
+              <th>Item</th>
+              <th>Print Position</th>
+              <th>Size</th>
+              <th>Qty.</th>
+              <th>Rate / sq in</th>
+              <th>Amount</th>
+            </tr>
+          ) : (
+            <tr>
+              <th>No.</th>
+              <th>Description</th>
+              <th>Article</th>
+              <th>Qty.</th>
+              <th>Rate</th>
+              <th>Amount</th>
+            </tr>
+          )}
         </thead>
         <tbody>
           {sale.items.map((item, index) => (
             <tr key={`${item.productId}-${index}`}>
               <td>{index + 1}</td>
               <td>{item.description}</td>
-              <td>{item.article}</td>
+              <td>{isDtgSale ? item.position || '-' : item.article}</td>
+              {isDtgSale && <td>{item.width && item.height ? `${item.width} x ${item.height} in` : '-'}</td>}
               <td>{item.qty}</td>
               <td>{formatMoney(item.rate, settings.currency)}</td>
               <td>{formatMoney(amountOf(item), settings.currency)}</td>
@@ -5230,6 +5457,7 @@ function Invoice({ sale, settings }: { sale: Sale; settings: CompanySettings }) 
       <section className="invoice-totals">
         <SummaryLine label="Total Quantity" value={`${sale.items.reduce((sum, item) => sum + item.qty, 0)}`} />
         <SummaryLine label="Subtotal" value={formatMoney(sale.subtotal, settings.currency)} />
+        {(sale.pretreatmentCharge || 0) > 0 && <SummaryLine label="Pretreatment Charges" value={formatMoney(sale.pretreatmentCharge || 0, settings.currency)} />}
         {sale.discount > 0 && <SummaryLine label="Discount" value={formatMoney(sale.discount, settings.currency)} />}
         <SummaryLine label="Grand Total" value={formatMoney(sale.total, settings.currency)} strong />
         <SummaryLine label="Received Amount" value={formatMoney(sale.received, settings.currency)} />

@@ -3644,38 +3644,58 @@ td {
 }
 
 .dtf-table table {
-  min-width: 0;
+  min-width: 1080px;
   table-layout: fixed;
 }
 
 .dtf-table th:nth-child(1),
 .dtf-table td:nth-child(1) {
-  width: 8%;
+  width: 4%;
 }
 
 .dtf-table th:nth-child(2),
 .dtf-table td:nth-child(2) {
-  width: 38%;
+  width: 19%;
 }
 
 .dtf-table th:nth-child(3),
 .dtf-table td:nth-child(3) {
-  width: 16%;
+  width: 15%;
 }
 
 .dtf-table th:nth-child(4),
 .dtf-table td:nth-child(4) {
-  width: 16%;
+  width: 9%;
 }
 
 .dtf-table th:nth-child(5),
 .dtf-table td:nth-child(5) {
-  width: 15%;
+  width: 9%;
 }
 
 .dtf-table th:nth-child(6),
 .dtf-table td:nth-child(6) {
-  width: 7%;
+  width: 8%;
+}
+
+.dtf-table th:nth-child(7),
+.dtf-table td:nth-child(7) {
+  width: 11%;
+}
+
+.dtf-table th:nth-child(8),
+.dtf-table td:nth-child(8) {
+  width: 10%;
+}
+
+.dtf-table th:nth-child(9),
+.dtf-table td:nth-child(9) {
+  width: 11%;
+}
+
+.dtf-table th:nth-child(10),
+.dtf-table td:nth-child(10) {
+  width: 4%;
 }
 
 .dtf-table td input {
@@ -3706,7 +3726,8 @@ td {
   background: #f4f8ff;
 }
 
-.billing-type-card.dtf {
+.billing-type-card.dtf,
+.billing-type-card.dtg {
   border-color: #f2c0c7;
   background: #fff5f6;
 }
@@ -3725,7 +3746,8 @@ td {
   background: #dfeaff;
 }
 
-.billing-type-card.dtf .billing-type-card-icon {
+.billing-type-card.dtf .billing-type-card-icon,
+.billing-type-card.dtg .billing-type-card-icon {
   color: var(--red);
   background: #ffe0e4;
 }
@@ -3768,7 +3790,8 @@ td {
   background: #e7efff;
 }
 
-.billing-tag.dtf {
+.billing-tag.dtf,
+.billing-tag.dtg {
   color: var(--red-dark);
   background: #ffe3e7;
 }
@@ -3778,7 +3801,8 @@ td {
   background: #eef4ff;
 }
 
-.report-type-list .report-link.dtf-report-link:not(.active) {
+.report-type-list .report-link.dtf-report-link:not(.active),
+.report-type-list .report-link.dtg-report-link:not(.active) {
   color: var(--red-dark);
   background: #fff1f2;
 }
@@ -3788,7 +3812,8 @@ td {
   background: var(--blue);
 }
 
-.report-type-list .report-link.dtf-report-link.active {
+.report-type-list .report-link.dtf-report-link.active,
+.report-type-list .report-link.dtg-report-link.active {
   color: #fff;
   background: var(--red);
 }
@@ -3818,7 +3843,8 @@ td {
   background: #eef4ff;
 }
 
-.billing-report-tab.dtf {
+.billing-report-tab.dtf,
+.billing-report-tab.dtg {
   color: var(--red-dark);
   background: #fff1f2;
 }
@@ -3829,7 +3855,8 @@ td {
   border-color: var(--blue);
 }
 
-.billing-report-tab.dtf.active {
+.billing-report-tab.dtf.active,
+.billing-report-tab.dtg.active {
   color: #fff;
   background: var(--red);
   border-color: var(--red);
@@ -3867,7 +3894,8 @@ td {
   }
 
   .dtf-table table {
-    min-width: 620px;
+    width: 100%;
+    min-width: 0;
   }
 
   .billing-type-summary {
@@ -4021,8 +4049,49 @@ td {
   }
 
   .dtf-table table {
-    width: 620px;
-    min-width: 620px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .dtg-billing .billing-table td {
+    grid-column: 1 / -1;
+    width: auto;
+  }
+
+  .dtg-billing .billing-table td:nth-child(7) {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+    padding-top: 7px;
+    border-top: 0;
+  }
+
+  .dtg-billing .billing-table td:nth-child(7)::before {
+    margin-right: 0;
+  }
+
+  .dtg-billing .billing-table td:nth-child(10) {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    padding-top: 9px;
+    border-top: 1px solid var(--border);
+  }
+
+  .dtg-billing .billing-table td:nth-child(10)::before {
+    margin-right: auto;
+  }
+
+  .dtg-billing .billing-table tr {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dtg-billing .billing-table td::before {
+    flex: 0 0 118px;
+  }
+
+  .dtg-billing .billing-table td input {
+    flex: 0 1 62%;
+    width: 62%;
+    min-width: 0;
   }
 
   .inventory-table tbody,
@@ -4207,6 +4276,11 @@ td {
   border-top: 1px solid var(--border);
 }
 
+.sale-edit-item.dtg {
+  grid-template-columns: 28px minmax(170px, 1.6fr) minmax(140px, 1.2fr) 88px 88px 76px 108px 120px 36px;
+  min-width: 1080px;
+}
+
 .sale-edit-item-number {
   align-self: center;
   color: var(--muted);
@@ -4286,7 +4360,8 @@ td {
   font-weight: 900;
 }
 
-.customer-category-tabs button.dtf {
+.customer-category-tabs button.dtf,
+.customer-category-tabs button.dtg {
   background: #fff5f5;
   color: var(--red);
 }
@@ -4297,7 +4372,8 @@ td {
   color: #fff;
 }
 
-.customer-category-tabs button.dtf.active {
+.customer-category-tabs button.dtf.active,
+.customer-category-tabs button.dtg.active {
   border-color: var(--red);
   background: var(--red);
   color: #fff;
