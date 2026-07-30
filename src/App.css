@@ -3650,52 +3650,57 @@ td {
 
 .dtf-table th:nth-child(1),
 .dtf-table td:nth-child(1) {
-  width: 4%;
+  width: 3%;
 }
 
 .dtf-table th:nth-child(2),
 .dtf-table td:nth-child(2) {
-  width: 19%;
+  width: 16%;
 }
 
 .dtf-table th:nth-child(3),
 .dtf-table td:nth-child(3) {
-  width: 15%;
+  width: 12%;
 }
 
 .dtf-table th:nth-child(4),
 .dtf-table td:nth-child(4) {
-  width: 9%;
+  width: 7%;
 }
 
 .dtf-table th:nth-child(5),
 .dtf-table td:nth-child(5) {
-  width: 9%;
+  width: 7%;
 }
 
 .dtf-table th:nth-child(6),
 .dtf-table td:nth-child(6) {
-  width: 8%;
+  width: 9%;
 }
 
 .dtf-table th:nth-child(7),
 .dtf-table td:nth-child(7) {
-  width: 11%;
+  width: 10%;
 }
 
 .dtf-table th:nth-child(8),
 .dtf-table td:nth-child(8) {
-  width: 10%;
+  width: 11%;
 }
 
 .dtf-table th:nth-child(9),
 .dtf-table td:nth-child(9) {
-  width: 11%;
+  width: 7%;
 }
 
 .dtf-table th:nth-child(10),
 .dtf-table td:nth-child(10) {
-  width: 4%;
+  width: 12%;
+}
+
+.dtf-table th:nth-child(11),
+.dtf-table td:nth-child(11) {
+  width: 6%;
 }
 
 .dtf-table td input {
@@ -4069,14 +4074,14 @@ td {
     margin-right: 0;
   }
 
-  .dtg-billing .billing-table td:nth-child(10) {
+  .dtg-billing .billing-table td:nth-child(11) {
     grid-column: 1 / -1;
     justify-content: flex-end;
     padding-top: 9px;
     border-top: 1px solid var(--border);
   }
 
-  .dtg-billing .billing-table td:nth-child(10)::before {
+  .dtg-billing .billing-table td:nth-child(11)::before {
     margin-right: auto;
   }
 
