@@ -5375,7 +5375,6 @@ function Invoice({ sale, settings }: { sale: Sale; settings: CompanySettings }) 
               <th>Size</th>
               <th>Rate / sq in</th>
               <th>Piece Qty</th>
-              <th>Total Print Area</th>
               <th>Total Amount</th>
             </tr>
           ) : (
@@ -5399,7 +5398,6 @@ function Invoice({ sale, settings }: { sale: Sale; settings: CompanySettings }) 
                   <td>{item.width && item.height ? `${item.width} x ${item.height} in` : '-'}</td>
                   <td>{formatMoney(item.rate, settings.currency)}</td>
                   <td>{item.qty}</td>
-                  <td>{(printAreaOf(item) * item.qty).toLocaleString()} sq in</td>
                   <td>{formatMoney(amountOf(item), settings.currency)}</td>
                 </>
               ) : (
@@ -5416,7 +5414,6 @@ function Invoice({ sale, settings }: { sale: Sale; settings: CompanySettings }) 
       </table>
       <section className="invoice-totals">
         <SummaryLine label={isDtgSale ? 'Total Piece Qty' : 'Total Quantity'} value={`${sale.items.reduce((sum, item) => sum + item.qty, 0)}`} />
-        {isDtgSale && <SummaryLine label="Total Print Area" value={`${sale.items.reduce((sum, item) => sum + printAreaOf(item) * item.qty, 0).toLocaleString()} sq in`} />}
         <SummaryLine label={isDtgSale ? 'Total Amount' : 'Subtotal'} value={formatMoney(sale.subtotal, settings.currency)} />
         <SummaryLine label="Grand Total" value={formatMoney(sale.total, settings.currency)} strong />
         <SummaryLine label="Received Amount" value={formatMoney(sale.received, settings.currency)} />
