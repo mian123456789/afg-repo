@@ -2380,54 +2380,58 @@ function DTGBilling(props: {
         </div>
       </section>
 
-      <aside className="bill-summary">
+      <aside className="bill-summary dtg-summary">
         <h3>DTG Bill Summary</h3>
-        <SummaryLine label="Total Pieces" value={`${props.totals.totalQty}`} />
-        <SummaryLine label="Total Print Area" value={`${props.totals.totalArea.toLocaleString()} sq in`} />
-        <SummaryLine label="Total Amount" value={formatMoney(props.totals.subtotal, props.settings.currency)} />
-        <SummaryLine label="Grand Total" value={formatMoney(props.totals.grandTotal, props.settings.currency)} strong />
-        <label>
-          Received Amount
+        <div className="dtg-summary-metrics">
+          <SummaryLine label="Total Pieces" value={`${props.totals.totalQty}`} />
+          <SummaryLine label="Total Print Area" value={`${props.totals.totalArea.toLocaleString()} sq in`} />
+          <SummaryLine label="Total Amount" value={formatMoney(props.totals.subtotal, props.settings.currency)} />
+          <SummaryLine label="Grand Total" value={formatMoney(props.totals.grandTotal, props.settings.currency)} strong />
+          <SummaryLine label="Remaining" value={formatMoney(props.totals.remaining, props.settings.currency)} />
+          {props.totals.change > 0 && <SummaryLine label="Change" value={formatMoney(props.totals.change, props.settings.currency)} strong />}
+        </div>
+        <div className="dtg-summary-controls">
+          <label>
+            Received Amount
+              <input
+                type="number"
+                min={0}
+                placeholder="Enter received amount"
+                value={props.received}
+                onChange={(event) => props.setReceived(sanitizeAmountInput(event.target.value))}
+              />
+          </label>
+          <div className="payment-tabs">
+            {(['Cash', 'Bank'] as PaymentMethod[]).map((method) => (
+              <button className={props.paymentMethod === method ? 'active' : ''} key={method} onClick={() => props.setPaymentMethod(method)}>
+                {method}
+              </button>
+            ))}
+          </div>
+          <div className="bank-fields">
+            {props.paymentMethod === 'Bank' && (
+              <select value={props.bankName} onChange={(event) => props.setBankName(event.target.value)}>
+                <option>Meezan</option>
+                <option>JazzCash</option>
+                <option>Easypaisa</option>
+                <option>UBL</option>
+                <option>Askari</option>
+              </select>
+            )}
             <input
-              type="number"
-              min={0}
-              placeholder="Enter received amount"
-              value={props.received}
-              onChange={(event) => props.setReceived(sanitizeAmountInput(event.target.value))}
+              placeholder={props.paymentMethod === 'Bank' ? 'Transaction reference' : 'Cash reference / note'}
+              value={props.reference}
+              onChange={(event) => props.setReference(event.target.value)}
             />
-        </label>
-        <SummaryLine label="Remaining" value={formatMoney(props.totals.remaining, props.settings.currency)} />
-        {props.totals.change > 0 && <SummaryLine label="Change" value={formatMoney(props.totals.change, props.settings.currency)} strong />}
-        <div className="payment-tabs">
-          {(['Cash', 'Bank'] as PaymentMethod[]).map((method) => (
-            <button className={props.paymentMethod === method ? 'active' : ''} key={method} onClick={() => props.setPaymentMethod(method)}>
-              {method}
-            </button>
-          ))}
-        </div>
-        <div className="bank-fields">
-          {props.paymentMethod === 'Bank' && (
-            <select value={props.bankName} onChange={(event) => props.setBankName(event.target.value)}>
-              <option>Meezan</option>
-              <option>JazzCash</option>
-              <option>Easypaisa</option>
-              <option>UBL</option>
-              <option>Askari</option>
+          </div>
+          <label className="payment-status-field">
+            Payment Status
+            <select value={props.paymentStatus} onChange={(event) => props.setPaymentStatus(event.target.value as PaymentStatus)}>
+              <option>Paid</option>
+              <option>Pending</option>
             </select>
-          )}
-          <input
-            placeholder={props.paymentMethod === 'Bank' ? 'Transaction reference' : 'Cash reference / note'}
-            value={props.reference}
-            onChange={(event) => props.setReference(event.target.value)}
-          />
+          </label>
         </div>
-        <label className="payment-status-field">
-          Payment Status
-          <select value={props.paymentStatus} onChange={(event) => props.setPaymentStatus(event.target.value as PaymentStatus)}>
-            <option>Paid</option>
-            <option>Pending</option>
-          </select>
-        </label>
         <div className="summary-actions">
           <button className="primary-btn" onClick={() => props.saveSale(true)}>
             <Printer size={17} /> Save & Print
