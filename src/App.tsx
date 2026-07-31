@@ -205,6 +205,17 @@ type AppNotification = {
   recipientRole?: Role
 }
 
+type AuditAction = 'Edited' | 'Deleted'
+
+type AuditNotification = {
+  id: string
+  title: string
+  detail: string
+  action: AuditAction
+  recipientRole: Role
+  createdAt: string
+}
+
 type CompanySettings = {
   logo: string
   companyName: string
@@ -302,6 +313,36 @@ const loadLoginAttempts = (): Record<string, LoginAttempt> => {
     return parsed && typeof parsed === 'object' ? parsed : {}
   } catch {
     return {}
+  }
+}
+
+const auditNotificationsStorageKey = 'afg-audit-notifications'
+const clearedNotificationsStorageKey = 'afg-cleared-notification-ids'
+
+const loadAuditNotifications = (): AuditNotification[] => {
+  try {
+    const saved = window.localStorage.getItem(auditNotificationsStorageKey)
+    const parsed = saved ? JSON.parse(saved) as AuditNotification[] : []
+    return Array.isArray(parsed)
+      ? parsed.filter((notification) => (
+          notification
+          && typeof notification.id === 'string'
+          && (notification.action === 'Edited' || notification.action === 'Deleted')
+          && (notification.recipientRole === 'Owner' || notification.recipientRole === 'Admin')
+        )).slice(0, 200)
+      : []
+  } catch {
+    return []
+  }
+}
+
+const loadClearedNotificationIds = (): string[] => {
+  try {
+    const saved = window.localStorage.getItem(clearedNotificationsStorageKey)
+    const parsed = saved ? JSON.parse(saved) as string[] : []
+    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string').slice(0, 500) : []
+  } catch {
+    return []
   }
 }
 
@@ -759,8 +800,8 @@ function App() {
   const [reference, setReference] = useState('')
   const [toast, setToast] = useState('')
   const [notificationsOpen, setNotificationsOpen] = useState(false)
-  const [deletionNotifications, setDeletionNotifications] = useState<AppNotification[]>([])
-  const [clearedNotificationIds, setClearedNotificationIds] = useState<string[]>([])
+  const [auditNotifications, setAuditNotifications] = useState<AuditNotification[]>(loadAuditNotifications)
+  const [clearedNotificationIds, setClearedNotificationIds] = useState<string[]>(loadClearedNotificationIds)
   const [previewSale, setPreviewSale] = useState<Sale | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   const [inventorySearch, setInventorySearch] = useState('')
@@ -794,6 +835,23 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem('afg-login-attempts', JSON.stringify(loginAttempts))
   }, [loginAttempts])
+
+  useEffect(() => {
+    window.localStorage.setItem(auditNotificationsStorageKey, JSON.stringify(auditNotifications))
+  }, [auditNotifications])
+
+  useEffect(() => {
+    window.localStorage.setItem(clearedNotificationsStorageKey, JSON.stringify(clearedNotificationIds))
+  }, [clearedNotificationIds])
+
+  useEffect(() => {
+    const syncAuditNotifications = (event: StorageEvent) => {
+      if (event.key === auditNotificationsStorageKey) setAuditNotifications(loadAuditNotifications())
+      if (event.key === clearedNotificationsStorageKey) setClearedNotificationIds(loadClearedNotificationIds())
+    }
+    window.addEventListener('storage', syncAuditNotifications)
+    return () => window.removeEventListener('storage', syncAuditNotifications)
+  }, [])
 
   useEffect(() => {
     persistCompanySettings(settings)
@@ -856,7 +914,13 @@ function App() {
   const saleCustomerName = customerName.trim() || 'Walk-in Customer'
   const saleCustomerPhone = customerPhone.trim() || '-'
   const notifications: AppNotification[] = [
-    ...deletionNotifications.filter((notification) => !notification.recipientRole || notification.recipientRole === role),
+    ...auditNotifications
+      .filter((notification) => notification.recipientRole === role)
+      .map((notification) => ({
+        ...notification,
+        icon: notification.action === 'Deleted' ? Trash2 : Pencil,
+        tone: notification.action === 'Deleted' ? 'danger' as const : 'warning' as const,
+      })),
     ...lowStock.map((product) => ({
       id: `stock-${product.id}`,
       title: 'Low stock alert',
@@ -873,7 +937,9 @@ function App() {
     })),
   ]
   const visibleNotifications = notifications.filter((notification) => !clearedNotificationIds.includes(notification.id))
-  const clearAllNotifications = () => setClearedNotificationIds(notifications.map((notification) => notification.id))
+  const clearAllNotifications = () => setClearedNotificationIds((current) => (
+    [...new Set([...current, ...notifications.map((notification) => notification.id)])].slice(-500)
+  ))
 
   const filteredProducts = products.filter((product) => {
     const term = inventorySearch.toLowerCase()
@@ -961,20 +1027,33 @@ function App() {
     window.setTimeout(() => setToast(''), 2400)
   }
 
-  const recordDeletion = (entity: string, detail: string) => {
-    if (role !== 'Admin') return
-    const notification: AppNotification = {
-      id: `deletion-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      title: `${entity} deleted by ${role}`,
-      detail: `${detail} | Deleted by: ${currentUserName} | Time: ${new Date().toLocaleString()}`,
-      icon: Trash2,
-      tone: 'danger',
-      recipientRole: 'Owner',
-    }
-    setDeletionNotifications((rows) => [notification, ...rows])
+  const recordAudit = (action: AuditAction, entity: string, detail: string) => {
+    const now = new Date()
+    const eventId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const fullDetail = `${detail} | Action: ${action} | Performed by: ${currentUserName} | Role: ${role} | Date and time: ${now.toLocaleString()}`
+    const recipientNotifications: AuditNotification[] = (['Owner', 'Admin'] as const).map((recipientRole) => ({
+      id: `audit-${action.toLowerCase()}-${eventId}-${recipientRole.toLowerCase()}`,
+      title: `${entity} ${action.toLowerCase()} by ${currentUserName}`,
+      detail: fullDetail,
+      action,
+      recipientRole,
+      createdAt: now.toISOString(),
+    }))
+    setAuditNotifications((rows) => [...recipientNotifications, ...rows].slice(0, 200))
     setNotificationsOpen(false)
-    notify(`${entity} deleted. Owner notification added with full details.`)
+    notify(`${entity} ${action.toLowerCase()}. Owner and Admin alerts added.`)
   }
+
+  const recordEdit = (entity: string, detail: string) => recordAudit('Edited', entity, detail)
+  const recordDeletion = (entity: string, detail: string) => recordAudit('Deleted', entity, detail)
+
+  const describeProduct = (product: Product) => (
+    `Product ID: ${product.id} | Description: ${product.description} | Article: ${product.article} | Barcode: ${product.barcode} | Category: ${product.category} | Unit: ${product.unit} | Cost: ${formatMoney(product.cost, settings.currency)} | Rate: ${formatMoney(product.rate, settings.currency)} | Stock: ${product.stock} | Minimum stock: ${product.minStock} | Status: ${product.status} | Created: ${product.created} | Image: ${product.image ? 'Attached' : 'None'}`
+  )
+
+  const describeSale = (sale: Sale) => (
+    `Invoice: ${sale.invoice} | Billing: ${billingTypeOf(sale)} | Customer: ${sale.customer} | Phone: ${sale.phone} | Vehicle: ${sale.vehicleNumber || '-'} | Date: ${sale.date} | Time: ${sale.time} | Items: ${sale.items.map((item) => `${item.description} [Article: ${item.article || '-'}, Qty: ${item.qty}, Rate: ${formatMoney(item.rate, settings.currency)}, Amount: ${formatMoney(amountOf(item), settings.currency)}${item.width && item.height ? `, Size: ${item.width} x ${item.height} in` : ''}]`).join('; ') || '-'} | Subtotal: ${formatMoney(sale.subtotal, settings.currency)} | Discount: ${formatMoney(sale.discount, settings.currency)} | Total: ${formatMoney(sale.total, settings.currency)} | Received: ${formatMoney(sale.received, settings.currency)} | Remaining: ${formatMoney(sale.remaining, settings.currency)} | Change: ${formatMoney(sale.change, settings.currency)} | Payment: ${sale.method}${sale.bankName ? ` / ${sale.bankName}` : ''} | Payment status: ${sale.paymentStatus} | Reference: ${sale.reference || '-'} | Remarks: ${sale.remarks || '-'} | Processed by: ${sale.cashier}`
+  )
 
   const hasVehicleNumber = (value: string) => {
     if (!value.trim()) {
@@ -1279,16 +1358,24 @@ function App() {
       return
     }
     if (editingProductId) {
+      const originalProduct = products.find((product) => product.id === editingProductId)
+      if (!originalProduct) return
+      const updatedProduct: Product = {
+        ...originalProduct,
+        ...newProduct,
+        cost: Math.round(newProduct.rate * 0.7),
+        minStock: settings.lowStockLimit,
+      }
       setProducts((rows) =>
         rows.map((product) =>
           product.id === editingProductId
-            ? { ...product, ...newProduct, cost: Math.round(newProduct.rate * 0.7), minStock: settings.lowStockLimit }
+            ? updatedProduct
             : product,
         ),
       )
       setEditingProductId(null)
       setNewProduct({ description: '', article: '', category: 'T-Shirts', rate: 0, stock: 0, image: '' })
-      notify('Product updated successfully.')
+      recordEdit('Product', `Before: ${describeProduct(originalProduct)} | After: ${describeProduct(updatedProduct)}`)
       return
     }
     setProducts((rows) => [
@@ -1645,7 +1732,7 @@ function App() {
                 if (editingProductId === id) cancelProductEdit()
                 recordDeletion(
                   'Product',
-                  `Product ID: ${product.id} | Description: ${product.description} | Article: ${product.article} | Barcode: ${product.barcode} | Category: ${product.category} | Unit: ${product.unit} | Cost: ${formatMoney(product.cost, settings.currency)} | Rate: ${formatMoney(product.rate, settings.currency)} | Stock: ${product.stock} | Minimum stock: ${product.minStock} | Status: ${product.status} | Created: ${product.created} | Image: ${product.image ? 'Attached' : 'None'}`,
+                  describeProduct(product),
                 )
               }}
               exportInventory={() =>
@@ -1731,7 +1818,7 @@ function App() {
                 setSales((rows) => rows.map((sale) => (
                   sale.invoice === updatedSale.invoice ? updatedSale : sale
                 )))
-                notify(`${updatedSale.invoice} updated successfully.`)
+                recordEdit('Sale', `Before: ${describeSale(originalSale)} | After: ${describeSale(updatedSale)}`)
               }}
               exportSales={() =>
                 exportToExcel(
@@ -1763,7 +1850,7 @@ function App() {
                 setSales((rows) => rows.filter((item) => item.invoice !== invoice))
                 recordDeletion(
                   'Sale',
-                  `Invoice: ${sale.invoice} | Billing: ${billingTypeOf(sale)} | Customer: ${sale.customer} | Phone: ${sale.phone} | Vehicle: ${sale.vehicleNumber || '-'} | Items: ${sale.items.map((item) => `${item.description} (${item.width && item.height ? `${item.width} x ${item.height} in, piece qty ${item.qty}, total print area ${(printAreaOf(item) * item.qty).toLocaleString()} sq in at ${formatMoney(item.rate, settings.currency)} per sq in` : `${item.qty} pcs`} = ${formatMoney(amountOf(item), settings.currency)})`).join('; ') || '-'} | Printing total: ${formatMoney(sale.subtotal, settings.currency)} | Total: ${formatMoney(sale.total, settings.currency)} | Received: ${formatMoney(sale.received, settings.currency)} | Remaining: ${formatMoney(sale.remaining, settings.currency)} | Payment: ${sale.method}${sale.bankName ? ` / ${sale.bankName}` : ''} | Status: ${sale.paymentStatus} | Reference: ${sale.reference || '-'} | Remarks: ${sale.remarks || '-'} | Processed by: ${sale.cashier}`,
+                  describeSale(sale),
                 )
               }}
             />
@@ -1812,7 +1899,16 @@ function App() {
               currency={settings.currency}
             />
           )}
-          {page === 'Staff' && <StaffPage staff={staff} setStaff={setStaff} role={role} currency={settings.currency} />}
+          {page === 'Staff' && (
+            <StaffPage
+              staff={staff}
+              setStaff={setStaff}
+              role={role}
+              currency={settings.currency}
+              recordEdit={recordEdit}
+              recordDeletion={recordDeletion}
+            />
+          )}
           {page === 'Salary' && (
             <SalaryPage
               staff={staff}
@@ -1825,11 +1921,20 @@ function App() {
               role={role}
               currency={settings.currency}
               notify={notify}
+              recordEdit={recordEdit}
               recordDeletion={recordDeletion}
               userName={currentUserName}
             />
           )}
-          {page === 'Attendance' && <AttendancePage records={attendance} setRecords={setAttendance} staff={staff} role={role} />}
+          {page === 'Attendance' && (
+            <AttendancePage
+              records={attendance}
+              setRecords={setAttendance}
+              staff={staff}
+              role={role}
+              recordEdit={recordEdit}
+            />
+          )}
           {page === 'Reports' && (
             <ReportsPage
               sales={visibleSales}
@@ -1847,9 +1952,11 @@ function App() {
               currentUserId={currentUserId}
               permissions={rolePermissions}
               setPermissions={setRolePermissions}
+              recordEdit={recordEdit}
+              recordDeletion={recordDeletion}
             />
           )}
-          {page === 'Settings' && <SettingsPage settings={settings} setSettings={setSettings} />}
+          {page === 'Settings' && <SettingsPage settings={settings} setSettings={setSettings} recordEdit={recordEdit} />}
         </section>
       </main>
 
@@ -3332,11 +3439,15 @@ function StaffPage({
   setStaff,
   role,
   currency,
+  recordEdit,
+  recordDeletion,
 }: {
   staff: StaffMember[]
   setStaff: React.Dispatch<React.SetStateAction<StaffMember[]>>
   role: Role
   currency: string
+  recordEdit: (entity: string, detail: string) => void
+  recordDeletion: (entity: string, detail: string) => void
 }) {
   const [departmentFilter, setDepartmentFilter] = useState('All Departments')
   const [draft, setDraft] = useState({ name: '', phone: '', department: staffDepartments[0], designation: '', salaryAmount: '', salaryEnabled: true })
@@ -3402,11 +3513,19 @@ function StaffPage({
         : item
     )))
     setTimeAssignmentMessage(`${member.name}: ${formatAttendanceTime(timeAssignment.shiftStart)} to ${formatAttendanceTime(timeAssignment.shiftEnd)} assigned.`)
+    recordEdit(
+      'Staff shift',
+      `Staff ID: ${member.id} | Employee: ${member.name} | Department: ${member.department} | Before: ${formatAttendanceTime(member.shiftStart)} to ${formatAttendanceTime(member.shiftEnd)} | After: ${formatAttendanceTime(timeAssignment.shiftStart)} to ${formatAttendanceTime(timeAssignment.shiftEnd)}`,
+    )
   }
 
   const toggleStaff = (id: string) => {
     if (!canManage) return
-    setStaff((rows) => rows.map((member) => (member.id === id ? { ...member, status: member.status === 'Active' ? 'Inactive' : 'Active' } : member)))
+    const member = staff.find((item) => item.id === id)
+    if (!member) return
+    const nextStatus = member.status === 'Active' ? 'Inactive' : 'Active'
+    setStaff((rows) => rows.map((item) => (item.id === id ? { ...item, status: nextStatus } : item)))
+    recordEdit('Staff status', `Staff ID: ${member.id} | Employee: ${member.name} | Department: ${member.department} | Before: ${member.status} | After: ${nextStatus}`)
   }
 
   const updateSalary = (id: string, salaryAmount: number) => {
@@ -3416,13 +3535,21 @@ function StaffPage({
 
   const toggleSalary = (id: string) => {
     if (!canManage) return
-    setStaff((rows) => rows.map((member) => (member.id === id ? { ...member, salaryEnabled: !member.salaryEnabled && member.salaryAmount > 0, salaryMode: member.salaryMode ?? 'Monthly' } : member)))
+    const member = staff.find((item) => item.id === id)
+    if (!member) return
+    const salaryEnabled = !member.salaryEnabled && member.salaryAmount > 0
+    setStaff((rows) => rows.map((item) => (item.id === id ? { ...item, salaryEnabled, salaryMode: item.salaryMode ?? 'Monthly' } : item)))
+    recordEdit('Staff salary assignment', `Staff ID: ${member.id} | Employee: ${member.name} | Salary: ${formatMoney(member.salaryAmount, currency)} | Before: ${member.salaryEnabled ? 'Included' : 'Not included'} | After: ${salaryEnabled ? 'Included' : 'Not included'}`)
   }
 
   const deleteStaff = (member: StaffMember) => {
     if (role !== 'Owner') return
     if (!window.confirm(`Delete ${member.name} from the staff directory?`)) return
     setStaff((rows) => rows.filter((row) => row.id !== member.id))
+    recordDeletion(
+      'Staff member',
+      `Staff ID: ${member.id} | Employee: ${member.name} | Phone: ${member.phone} | Department: ${member.department} | Designation: ${member.designation} | Shift: ${formatAttendanceTime(member.shiftStart)} to ${formatAttendanceTime(member.shiftEnd)} | Salary: ${formatMoney(member.salaryAmount, currency)} | Salary type: ${member.salaryMode || 'Monthly'} | Salary enabled: ${member.salaryEnabled ? 'Yes' : 'No'} | Status: ${member.status}`,
+    )
   }
 
   return (
@@ -3531,6 +3658,12 @@ function StaffPage({
               value={member.salaryAmount ? String(member.salaryAmount) : ''}
               placeholder="0"
               onChange={(event) => updateSalary(member.id, Number(sanitizeAmountInput(event.target.value)) || 0)}
+              onFocus={(event) => { event.currentTarget.dataset.auditBefore = String(member.salaryAmount) }}
+              onBlur={(event) => {
+                const before = Number(event.currentTarget.dataset.auditBefore || 0)
+                if (before === member.salaryAmount) return
+                recordEdit('Staff monthly salary', `Staff ID: ${member.id} | Employee: ${member.name} | Before: ${formatMoney(before, currency)} | After: ${formatMoney(member.salaryAmount, currency)}`)
+              }}
               disabled={!canManage}
             />,
             <button className={member.salaryEnabled ? 'salary-toggle active' : 'salary-toggle'} disabled={!canManage || member.salaryAmount <= 0} onClick={() => toggleSalary(member.id)}>
@@ -3565,6 +3698,7 @@ function SalaryPage({
   role,
   currency,
   notify,
+  recordEdit,
   recordDeletion,
   userName,
 }: {
@@ -3578,6 +3712,7 @@ function SalaryPage({
   role: Role
   currency: string
   notify: (message: string) => void
+  recordEdit: (entity: string, detail: string) => void
   recordDeletion: (entity: string, detail: string) => void
   userName: string
 }) {
@@ -3698,7 +3833,10 @@ function SalaryPage({
 
   const removeFromSalary = (id: string) => {
     if (!canManage) return
+    const member = staff.find((item) => item.id === id)
+    if (!member) return
     setStaff((rows) => rows.map((member) => (member.id === id ? { ...member, salaryEnabled: false } : member)))
+    recordEdit('Salary assignment', `Staff ID: ${member.id} | Employee: ${member.name} | Department: ${member.department} | Salary type: ${member.salaryMode || 'Monthly'} | Salary: ${formatMoney(member.salaryAmount, currency)} | Before: Included | After: Removed`)
   }
 
   const assignSalaryMode = () => {
@@ -3709,7 +3847,10 @@ function SalaryPage({
       return
     }
     setStaff((rows) => rows.map((item) => (item.id === member.id ? { ...item, salaryEnabled: true, salaryMode: salaryAssignment.mode } : item)))
-    notify(`${member.name} added to ${salaryAssignment.mode === 'Theka' ? 'Theka / Piece-Rate' : 'Monthly Salary'}.`)
+    recordEdit(
+      'Salary type',
+      `Staff ID: ${member.id} | Employee: ${member.name} | Department: ${member.department} | Before: ${member.salaryEnabled ? member.salaryMode || 'Monthly' : 'Unassigned'} | After: ${salaryAssignment.mode}`,
+    )
   }
 
   const addPieceRateEntry = (event: React.FormEvent<HTMLFormElement>) => {
@@ -3759,10 +3900,14 @@ function SalaryPage({
     }
     const existingAdvance = editingAdvanceId ? salaryAdvances.find((item) => item.id === editingAdvanceId && item.salaryType === 'Theka') : undefined
     if (existingAdvance) {
-      setSalaryAdvances((rows) => rows.map((item) => (item.id === existingAdvance.id ? { ...item, date: advanceDraft.date, staffId: member.id, employee: member.name, amount: draftAdvanceAmount, remarks: advanceDraft.remarks.trim() || 'Salary advance' } : item)))
+      const updatedAdvance = { ...existingAdvance, date: advanceDraft.date, staffId: member.id, employee: member.name, amount: draftAdvanceAmount, remarks: advanceDraft.remarks.trim() || 'Salary advance' }
+      setSalaryAdvances((rows) => rows.map((item) => (item.id === existingAdvance.id ? updatedAdvance : item)))
       setAdvanceDraft((draft) => ({ ...draft, amount: '', remarks: '' }))
       setEditingAdvanceId(null)
-      notify(`Theka advance updated: ${formatMoney(draftAdvanceAmount, currency)}.`)
+      recordEdit(
+        'Theka salary advance',
+        `Advance: ${existingAdvance.id} | Before: Staff ${existingAdvance.employee} (${existingAdvance.staffId}), Date ${existingAdvance.date}, Amount ${formatMoney(existingAdvance.amount, currency)}, Remarks ${existingAdvance.remarks} | After: Staff ${updatedAdvance.employee} (${updatedAdvance.staffId}), Date ${updatedAdvance.date}, Amount ${formatMoney(updatedAdvance.amount, currency)}, Remarks ${updatedAdvance.remarks}`,
+      )
       return
     }
     const advance: SalaryAdvance = {
@@ -3790,10 +3935,14 @@ function SalaryPage({
     }
     const existingAdvance = editingAdvanceId ? salaryAdvances.find((item) => item.id === editingAdvanceId && item.salaryType === 'Monthly') : undefined
     if (existingAdvance) {
-      setSalaryAdvances((rows) => rows.map((item) => (item.id === existingAdvance.id ? { ...item, date: monthlyAdvanceDraft.date, staffId: member.id, employee: member.name, amount: monthlyDraftAdvanceAmount, remarks: monthlyAdvanceDraft.remarks.trim() || 'Salary advance' } : item)))
+      const updatedAdvance = { ...existingAdvance, date: monthlyAdvanceDraft.date, staffId: member.id, employee: member.name, amount: monthlyDraftAdvanceAmount, remarks: monthlyAdvanceDraft.remarks.trim() || 'Salary advance' }
+      setSalaryAdvances((rows) => rows.map((item) => (item.id === existingAdvance.id ? updatedAdvance : item)))
       setMonthlyAdvanceDraft((draft) => ({ ...draft, amount: '', remarks: '' }))
       setEditingAdvanceId(null)
-      notify(`Monthly salary advance updated: ${formatMoney(monthlyDraftAdvanceAmount, currency)}.`)
+      recordEdit(
+        'Monthly salary advance',
+        `Advance: ${existingAdvance.id} | Before: Staff ${existingAdvance.employee} (${existingAdvance.staffId}), Date ${existingAdvance.date}, Amount ${formatMoney(existingAdvance.amount, currency)}, Remarks ${existingAdvance.remarks} | After: Staff ${updatedAdvance.employee} (${updatedAdvance.staffId}), Date ${updatedAdvance.date}, Amount ${formatMoney(updatedAdvance.amount, currency)}, Remarks ${updatedAdvance.remarks}`,
+      )
       return
     }
     const advance: SalaryAdvance = {
@@ -4048,6 +4197,12 @@ function SalaryPage({
             aria-label={`Monthly salary for ${row.member.name}`}
             value={row.member.salaryAmount ? String(row.member.salaryAmount) : ''}
             onChange={(event) => updateSalary(row.member.id, event.target.value)}
+            onFocus={(event) => { event.currentTarget.dataset.auditBefore = String(row.member.salaryAmount) }}
+            onBlur={(event) => {
+              const before = Number(event.currentTarget.dataset.auditBefore || 0)
+              if (before === row.member.salaryAmount) return
+              recordEdit('Monthly salary amount', `Staff ID: ${row.member.id} | Employee: ${row.member.name} | Before: ${formatMoney(before, currency)} | After: ${formatMoney(row.member.salaryAmount, currency)}`)
+            }}
             disabled={!canManage}
           />,
           row.presentDays,
@@ -4268,7 +4423,19 @@ function SalaryPage({
   )
 }
 
-function AttendancePage({ records, setRecords, staff, role }: { records: AttendanceRecord[]; setRecords: React.Dispatch<React.SetStateAction<AttendanceRecord[]>>; staff: StaffMember[]; role: Role }) {
+function AttendancePage({
+  records,
+  setRecords,
+  staff,
+  role,
+  recordEdit,
+}: {
+  records: AttendanceRecord[]
+  setRecords: React.Dispatch<React.SetStateAction<AttendanceRecord[]>>
+  staff: StaffMember[]
+  role: Role
+  recordEdit: (entity: string, detail: string) => void
+}) {
   const [selectedDate, setSelectedDate] = useState(getTodayText)
   const [period, setPeriod] = useState<'Daily' | 'Weekly' | 'Monthly'>('Daily')
   const [attendanceDrafts, setAttendanceDrafts] = useState<Record<string, { checkIn: string; checkOut: string }>>({})
@@ -4361,10 +4528,15 @@ function AttendancePage({ records, setRecords, staff, role }: { records: Attenda
       const { [key]: _saved, ...rest } = drafts
       return rest
     })
+    recordEdit(
+      'Attendance record',
+      `Staff ID: ${member.id} | Employee: ${member.name} | Department: ${member.department} | Date: ${selectedDate} | Before: Check in ${formatAttendanceTime(record?.checkIn || '-')}, Check out ${formatAttendanceTime(record?.checkOut || '-')}, Status ${record?.status || 'No record'} | After: Check in ${formatAttendanceTime(nextCheckIn)}, Check out ${formatAttendanceTime(nextCheckOut)}, Status ${nextStatus}`,
+    )
   }
 
   const updateAttendance = (member: StaffMember, action: AttendanceStatus) => {
     if (!canManage) return
+    const previousRecord = records.find((record) => record.staffId === member.id && record.date === selectedDate)
     setRecords((rows) => {
       const existing = rows.find((record) => record.staffId === member.id && record.date === selectedDate)
       const base: AttendanceRecord = existing || {
@@ -4384,6 +4556,10 @@ function AttendancePage({ records, setRecords, staff, role }: { records: Attenda
       const { [draftKeyFor(member)]: _removed, ...rest } = drafts
       return rest
     })
+    recordEdit(
+      'Attendance status',
+      `Staff ID: ${member.id} | Employee: ${member.name} | Department: ${member.department} | Date: ${selectedDate} | Before: Check in ${formatAttendanceTime(previousRecord?.checkIn || '-')}, Check out ${formatAttendanceTime(previousRecord?.checkOut || '-')}, Status ${previousRecord?.status || 'No record'} | After: Check in -, Check out -, Status ${action}`,
+    )
   }
 
   const exportAttendance = () => {
@@ -4986,6 +5162,8 @@ function UsersPage({
   currentUserId,
   permissions,
   setPermissions,
+  recordEdit,
+  recordDeletion,
 }: {
   role: Role
   users: UserAccount[]
@@ -4993,6 +5171,8 @@ function UsersPage({
   currentUserId: string | null
   permissions: Record<ManagedRole, Page[]>
   setPermissions: React.Dispatch<React.SetStateAction<Record<ManagedRole, Page[]>>>
+  recordEdit: (entity: string, detail: string) => void
+  recordDeletion: (entity: string, detail: string) => void
 }) {
   const [showUserPassword, setShowUserPassword] = useState(false)
   const [formMessage, setFormMessage] = useState('')
@@ -5008,12 +5188,14 @@ function UsersPage({
 
   const togglePermission = (permission: Page) => {
     if (!isOwner) return
+    const wasEnabled = permissions.Admin.includes(permission)
     setPermissions((current) => ({
       ...current,
       Admin: current.Admin.includes(permission)
         ? current.Admin.filter((item) => item !== permission)
         : [...current.Admin, permission],
     }))
+    recordEdit('Admin permission', `Permission: ${permission} | Before: ${wasEnabled ? 'Allowed' : 'Blocked'} | After: ${wasEnabled ? 'Blocked' : 'Allowed'} | Admin permissions after change: ${wasEnabled ? permissions.Admin.filter((item) => item !== permission).join(', ') || 'None' : [...permissions.Admin, permission].join(', ')}`)
   }
 
   const addUser = (event: React.FormEvent<HTMLFormElement>) => {
@@ -5037,20 +5219,25 @@ function UsersPage({
       return
     }
     if (editingUser) {
+      const updatedUser = {
+        ...editingUser,
+        name: draft.name.trim(),
+        username,
+        password: draft.password || editingUser.password,
+      }
       setUsers((accounts) => accounts.map((account) => (
         account.id === editingUser.id
-          ? {
-              ...account,
-              name: draft.name.trim(),
-              username,
-              password: draft.password || account.password,
-            }
+          ? updatedUser
           : account
       )))
       setDraft({ name: '', username: '', password: '' })
       setEditingUserId(null)
       setShowUserPassword(false)
       setFormMessage('Admin login account updated.')
+      recordEdit(
+        'Admin user account',
+        `User ID: ${editingUser.id} | Before: Name ${editingUser.name}, Username ${editingUser.username}, Role ${editingUser.role}, Status ${editingUser.status} | After: Name ${updatedUser.name}, Username ${updatedUser.username}, Role ${updatedUser.role}, Status ${updatedUser.status} | Password changed: ${draft.password ? 'Yes' : 'No'}`,
+      )
       return
     }
     setUsers((accounts) => [
@@ -5087,15 +5274,18 @@ function UsersPage({
 
   const toggleUserStatus = (account: UserAccount) => {
     if (!isOwner || account.role === 'Owner' || account.id === currentUserId) return
+    const nextStatus = account.status === 'Active' ? 'Inactive' : 'Active'
     setUsers((accounts) => accounts.map((item) => (
-      item.id === account.id ? { ...item, status: item.status === 'Active' ? 'Inactive' : 'Active' } : item
+      item.id === account.id ? { ...item, status: nextStatus } : item
     )))
+    recordEdit('Admin user status', `User ID: ${account.id} | Name: ${account.name} | Username: ${account.username} | Role: ${account.role} | Before: ${account.status} | After: ${nextStatus} | Created: ${account.created}`)
   }
 
   const deleteUser = (account: UserAccount) => {
     if (!isOwner || account.role === 'Owner' || account.id === currentUserId) return
     if (!window.confirm(`Delete the login account for ${account.name}?`)) return
     setUsers((accounts) => accounts.filter((item) => item.id !== account.id))
+    recordDeletion('Admin user account', `User ID: ${account.id} | Name: ${account.name} | Username: ${account.username} | Role: ${account.role} | Status: ${account.status} | Created: ${account.created} | Password: Protected and not displayed`)
   }
 
   return (
@@ -5208,13 +5398,40 @@ function UsersPage({
   )
 }
 
-function SettingsPage({ settings, setSettings }: { settings: CompanySettings; setSettings: React.Dispatch<React.SetStateAction<CompanySettings>> }) {
+function SettingsPage({
+  settings,
+  setSettings,
+  recordEdit,
+}: {
+  settings: CompanySettings
+  setSettings: React.Dispatch<React.SetStateAction<CompanySettings>>
+  recordEdit: (entity: string, detail: string) => void
+}) {
+  const [savedSnapshot, setSavedSnapshot] = useState<CompanySettings>(() => settings)
   const update = (key: keyof CompanySettings, value: string | number | boolean) => {
     setSettings((current) => {
       const updated = { ...current, [key]: value }
       persistCompanySettings(updated)
       return updated
     })
+  }
+  const saveSettings = () => {
+    if (!persistCompanySettings(settings)) {
+      alert('Unable to save settings. Please use a smaller logo image and try again.')
+      return
+    }
+    const changedFields = (Object.keys(settings) as Array<keyof CompanySettings>)
+      .filter((key) => settings[key] !== savedSnapshot[key])
+      .map((key) => {
+        const before = key === 'logo' ? (savedSnapshot.logo ? 'Attached' : 'None') : String(savedSnapshot[key])
+        const after = key === 'logo' ? (settings.logo ? 'Attached' : 'None') : String(settings[key])
+        return `${key}: ${before} -> ${after}`
+      })
+    if (changedFields.length) {
+      recordEdit('Company settings', `Changed fields: ${changedFields.join(' | ')}`)
+      setSavedSnapshot(settings)
+    }
+    alert('Settings saved successfully.')
   }
   return (
     <div className="settings-grid">
@@ -5273,11 +5490,7 @@ function SettingsPage({ settings, setSettings }: { settings: CompanySettings; se
         </label>
         <button
           className="primary-btn"
-          onClick={() => alert(
-            persistCompanySettings(settings)
-              ? 'Settings saved successfully.'
-              : 'Unable to save settings. Please use a smaller logo image and try again.',
-          )}
+          onClick={saveSettings}
         >
           Save Settings
         </button>

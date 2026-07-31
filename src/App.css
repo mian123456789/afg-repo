@@ -398,7 +398,7 @@ label {
   top: calc(100% + 10px);
   right: 0;
   z-index: 40;
-  width: min(360px, calc(100vw - 32px));
+  width: min(520px, calc(100vw - 32px));
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -524,6 +524,8 @@ label {
   color: var(--muted);
   font-size: 11px;
   line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .notification-empty {
