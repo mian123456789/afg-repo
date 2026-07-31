@@ -3853,6 +3853,43 @@ td {
   grid-column: auto;
 }
 
+@media (min-width: 1201px) {
+  .pos-layout.dtg-billing {
+    grid-template-columns: minmax(0, 1fr) 300px;
+    align-items: start;
+  }
+
+  .dtg-billing .customer-strip.dtg-customer-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dtg-summary {
+    position: sticky;
+    top: 96px;
+  }
+
+  .dtg-summary-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dtg-summary-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dtg-summary-controls .bank-fields {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dtg-summary .summary-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dtg-summary .summary-actions .primary-btn {
+    grid-column: 1 / -1;
+  }
+}
+
 .billing-type-summary {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
