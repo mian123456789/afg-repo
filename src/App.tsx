@@ -2295,10 +2295,10 @@ function DTGBilling(props: {
                  <th>Item Name</th>
                  <th>Width (in)</th>
                  <th>Height (in)</th>
-                 <th>Print Area</th>
                  <th>Rate / sq in</th>
-                 <th>Amount / Piece</th>
                  <th>Pieces</th>
+                 <th>Print Area</th>
+                 <th>Amount / Piece</th>
                  <th>Total Amount</th>
                  <th className="screen-only">Action</th>
               </tr>
@@ -2341,7 +2341,6 @@ function DTGBilling(props: {
                        onChange={(event) => props.updateItem(item.productId, { height: Math.max(0, Number(event.target.value)) })}
                      />
                    </td>
-                   <td data-label="Print Area">{printAreaOf(item).toLocaleString()} sq in</td>
                    <td data-label="Rate / sq in">
                      <input
                        type="number"
@@ -2352,10 +2351,11 @@ function DTGBilling(props: {
                        onChange={(event) => props.updateItem(item.productId, { rate: Math.max(0, Number(event.target.value)) })}
                      />
                    </td>
-                   <td data-label="Amount / Piece">{formatMoney(amountPerPieceOf(item), props.settings.currency)}</td>
                    <td data-label="Pieces">
                      <QuantityInput value={item.qty} onChange={(value) => props.updateItem(item.productId, { qty: value })} />
                    </td>
+                   <td data-label="Print Area">{printAreaOf(item).toLocaleString()} sq in</td>
+                   <td data-label="Amount / Piece">{formatMoney(amountPerPieceOf(item), props.settings.currency)}</td>
                    <td data-label="Total Amount">{formatMoney(amountOf(item), props.settings.currency)}</td>
                    <td className="screen-only" data-label="Action">
                       <button className="icon-btn danger" type="button" onClick={() => props.removeItem(item.productId)} aria-label="Delete DTG item">
