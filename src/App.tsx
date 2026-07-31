@@ -739,6 +739,7 @@ function App() {
   const [customerName, setCustomerName] = useState('')
   const [customerPhone, setCustomerPhone] = useState('')
   const [vehicleNumber, setVehicleNumber] = useState('')
+  const [posRemarks, setPosRemarks] = useState('')
   const [productSearch, setProductSearch] = useState('')
   const [cart, setCart] = useState<CartItem[]>([])
   const [dtfCustomerName, setDtfCustomerName] = useState('')
@@ -909,6 +910,7 @@ function App() {
     cashier: currentUserName,
     bankName: paymentMethod === 'Bank' ? bankName : undefined,
     reference: reference.trim() || undefined,
+    remarks: posRemarks.trim() || undefined,
   }
 
   const currentDtgSale: Sale = {
@@ -1142,6 +1144,7 @@ function App() {
     setCustomerName('')
     setCustomerPhone('')
     setVehicleNumber('')
+    setPosRemarks('')
     setConfirmClear(false)
   }
 
@@ -1211,7 +1214,7 @@ function App() {
       || item.qty <= 0
       || item.rate <= 0
     ))) {
-      notify('Complete every DTG item with a name, width, height, rate, and pieces.')
+      notify('Complete every DTG item with a name, width, height, rate, and piece quantity.')
       return
     }
     if (print && dtfReceivedAmount <= 0) {
@@ -1549,6 +1552,8 @@ function App() {
               setCustomerPhone={setCustomerPhone}
               vehicleNumber={vehicleNumber}
               setVehicleNumber={setVehicleNumber}
+              remarks={posRemarks}
+              setRemarks={setPosRemarks}
               updateQty={updateQty}
               updateRate={updateRate}
               removeItem={(id) => setCart((items) => items.filter((item) => item.productId !== id))}
@@ -1758,7 +1763,7 @@ function App() {
                 setSales((rows) => rows.filter((item) => item.invoice !== invoice))
                 recordDeletion(
                   'Sale',
-                  `Invoice: ${sale.invoice} | Billing: ${billingTypeOf(sale)} | Customer: ${sale.customer} | Phone: ${sale.phone} | Vehicle: ${sale.vehicleNumber || '-'} | Items: ${sale.items.map((item) => `${item.description} (${item.width && item.height ? `${item.width} x ${item.height} in = ${printAreaOf(item)} sq in, ${formatMoney(amountPerPieceOf(item), settings.currency)} per piece, ` : ''}${item.qty} pieces = ${formatMoney(amountOf(item), settings.currency)})`).join('; ') || '-'} | Printing total: ${formatMoney(sale.subtotal, settings.currency)} | Total: ${formatMoney(sale.total, settings.currency)} | Received: ${formatMoney(sale.received, settings.currency)} | Remaining: ${formatMoney(sale.remaining, settings.currency)} | Payment: ${sale.method}${sale.bankName ? ` / ${sale.bankName}` : ''} | Status: ${sale.paymentStatus} | Reference: ${sale.reference || '-'} | Remarks: ${sale.remarks || '-'} | Processed by: ${sale.cashier}`,
+                  `Invoice: ${sale.invoice} | Billing: ${billingTypeOf(sale)} | Customer: ${sale.customer} | Phone: ${sale.phone} | Vehicle: ${sale.vehicleNumber || '-'} | Items: ${sale.items.map((item) => `${item.description} (${item.width && item.height ? `${item.width} x ${item.height} in, piece qty ${item.qty}, total print area ${(printAreaOf(item) * item.qty).toLocaleString()} sq in at ${formatMoney(item.rate, settings.currency)} per sq in` : `${item.qty} pcs`} = ${formatMoney(amountOf(item), settings.currency)})`).join('; ') || '-'} | Printing total: ${formatMoney(sale.subtotal, settings.currency)} | Total: ${formatMoney(sale.total, settings.currency)} | Received: ${formatMoney(sale.received, settings.currency)} | Remaining: ${formatMoney(sale.remaining, settings.currency)} | Payment: ${sale.method}${sale.bankName ? ` / ${sale.bankName}` : ''} | Status: ${sale.paymentStatus} | Reference: ${sale.reference || '-'} | Remarks: ${sale.remarks || '-'} | Processed by: ${sale.cashier}`,
                 )
               }}
             />
@@ -1973,6 +1978,8 @@ function POS(props: {
   setCustomerPhone: (value: string) => void
   vehicleNumber: string
   setVehicleNumber: (value: string) => void
+  remarks: string
+  setRemarks: (value: string) => void
   updateQty: (id: string, qty: number) => void
   updateRate: (id: string, rate: number) => void
   removeItem: (id: string) => void
@@ -2121,6 +2128,17 @@ function POS(props: {
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="pos-remarks-row">
+          <label>
+            Remarks
+            <textarea
+              rows={2}
+              placeholder="Special instructions or bill notes"
+              value={props.remarks}
+              onChange={(event) => props.setRemarks(event.target.value)}
+            />
+          </label>
         </div>
       </section>
 
@@ -2281,7 +2299,7 @@ function DTGBilling(props: {
         <div className="dtf-entry-toolbar">
           <div>
             <strong>DTG Printing Items</strong>
-            <span>Total amount = width x height x rate x pieces.</span>
+            <span>Total print area = width x height x piece qty. Total amount = total print area x rate.</span>
           </div>
           <button className="primary-btn" type="button" onClick={props.addItem}>
             <Plus size={17} /> Add Printing Item
@@ -2296,9 +2314,8 @@ function DTGBilling(props: {
                  <th>Width (in)</th>
                  <th>Height (in)</th>
                  <th>Rate / sq in</th>
-                 <th>Pieces</th>
-                 <th>Print Area</th>
-                 <th>Amount / Piece</th>
+                 <th>Piece Qty</th>
+                 <th>Total Print Area</th>
                  <th>Total Amount</th>
                  <th className="screen-only">Action</th>
               </tr>
@@ -2306,7 +2323,7 @@ function DTGBilling(props: {
             <tbody>
                {props.items.length === 0 && (
                  <tr>
-                   <td colSpan={10} className="empty-cell">
+                   <td colSpan={9} className="empty-cell">
                      Add a DTG printing item to begin billing.
                    </td>
                 </tr>
@@ -2351,11 +2368,10 @@ function DTGBilling(props: {
                        onChange={(event) => props.updateItem(item.productId, { rate: Math.max(0, Number(event.target.value)) })}
                      />
                    </td>
-                   <td data-label="Pieces">
+                   <td data-label="Piece Qty">
                      <QuantityInput value={item.qty} onChange={(value) => props.updateItem(item.productId, { qty: value })} />
                    </td>
-                   <td data-label="Print Area">{printAreaOf(item).toLocaleString()} sq in</td>
-                   <td data-label="Amount / Piece">{formatMoney(amountPerPieceOf(item), props.settings.currency)}</td>
+                   <td data-label="Total Print Area">{(printAreaOf(item) * item.qty).toLocaleString()} sq in</td>
                    <td data-label="Total Amount">{formatMoney(amountOf(item), props.settings.currency)}</td>
                    <td className="screen-only" data-label="Action">
                       <button className="icon-btn danger" type="button" onClick={() => props.removeItem(item.productId)} aria-label="Delete DTG item">
@@ -2383,7 +2399,7 @@ function DTGBilling(props: {
       <aside className="bill-summary dtg-summary">
         <h3>DTG Bill Summary</h3>
         <div className="dtg-summary-metrics">
-          <SummaryLine label="Total Pieces" value={`${props.totals.totalQty}`} />
+          <SummaryLine label="Total Piece Qty" value={`${props.totals.totalQty}`} />
           <SummaryLine label="Total Print Area" value={`${props.totals.totalArea.toLocaleString()} sq in`} />
           <SummaryLine label="Total Amount" value={formatMoney(props.totals.subtotal, props.settings.currency)} />
           <SummaryLine label="Grand Total" value={formatMoney(props.totals.grandTotal, props.settings.currency)} strong />
@@ -3060,7 +3076,7 @@ function EditSaleModal({
       || (isDtg && (Number(item.width) <= 0 || Number(item.height) <= 0))
     ))) {
       setError(isDtg
-        ? 'Complete every DTG item with a name, width, height, pieces, and rate.'
+        ? 'Complete every DTG item with a name, width, height, piece quantity, and rate.'
         : 'Complete every item with a valid name, quantity, and rate.')
       return
     }
@@ -3175,7 +3191,7 @@ function EditSaleModal({
           <div className="panel-title">
             <div>
               <h3>Bill Items</h3>
-              <p className="report-subtitle">{isDtg ? 'DTG totals use print area x your rate x pieces.' : 'Update quantities and rates. Stock is checked for POS items.'}</p>
+              <p className="report-subtitle">{isDtg ? 'DTG totals use width x height x piece qty x rate.' : 'Update quantities and rates. Stock is checked for POS items.'}</p>
             </div>
             {isDtg && (
               <button
@@ -3242,7 +3258,7 @@ function EditSaleModal({
                   </label>
                 )}
                 <label>
-                  {isDtg ? 'Pieces' : 'Qty.'}
+                  {isDtg ? 'Piece Qty' : 'Qty.'}
                   <input
                     type="number"
                     min="1"
@@ -3262,7 +3278,7 @@ function EditSaleModal({
                     onChange={(event) => updateItem(item.productId, { rate: Math.max(0, Number(event.target.value) || 0) })}
                   />
                 </label>
-                <strong title={isDtg ? `${printAreaOf(item).toLocaleString()} sq in at ${formatMoney(item.rate, currency)} per sq in; ${formatMoney(amountPerPieceOf(item), currency)} per piece` : undefined}>
+                <strong title={isDtg ? `${item.qty} piece qty; ${(printAreaOf(item) * item.qty).toLocaleString()} total sq in at ${formatMoney(item.rate, currency)} per sq in` : undefined}>
                   {formatMoney(amountOf(item), currency)}
                 </strong>
                 {isDtg && (
@@ -5357,10 +5373,9 @@ function Invoice({ sale, settings }: { sale: Sale; settings: CompanySettings }) 
               <th>No.</th>
               <th>Item</th>
               <th>Size</th>
-              <th>Print Area</th>
               <th>Rate / sq in</th>
-              <th>Amount / Piece</th>
-              <th>Pieces</th>
+              <th>Piece Qty</th>
+              <th>Total Print Area</th>
               <th>Total Amount</th>
             </tr>
           ) : (
@@ -5382,10 +5397,9 @@ function Invoice({ sale, settings }: { sale: Sale; settings: CompanySettings }) 
               {isDtgSale ? (
                 <>
                   <td>{item.width && item.height ? `${item.width} x ${item.height} in` : '-'}</td>
-                  <td>{printAreaOf(item).toLocaleString()} sq in</td>
                   <td>{formatMoney(item.rate, settings.currency)}</td>
-                  <td>{formatMoney(amountPerPieceOf(item), settings.currency)}</td>
                   <td>{item.qty}</td>
+                  <td>{(printAreaOf(item) * item.qty).toLocaleString()} sq in</td>
                   <td>{formatMoney(amountOf(item), settings.currency)}</td>
                 </>
               ) : (
@@ -5401,7 +5415,7 @@ function Invoice({ sale, settings }: { sale: Sale; settings: CompanySettings }) 
         </tbody>
       </table>
       <section className="invoice-totals">
-        <SummaryLine label={isDtgSale ? 'Total Pieces' : 'Total Quantity'} value={`${sale.items.reduce((sum, item) => sum + item.qty, 0)}`} />
+        <SummaryLine label={isDtgSale ? 'Total Piece Qty' : 'Total Quantity'} value={`${sale.items.reduce((sum, item) => sum + item.qty, 0)}`} />
         {isDtgSale && <SummaryLine label="Total Print Area" value={`${sale.items.reduce((sum, item) => sum + printAreaOf(item) * item.qty, 0).toLocaleString()} sq in`} />}
         <SummaryLine label={isDtgSale ? 'Total Amount' : 'Subtotal'} value={formatMoney(sale.subtotal, settings.currency)} />
         <SummaryLine label="Grand Total" value={formatMoney(sale.total, settings.currency)} strong />

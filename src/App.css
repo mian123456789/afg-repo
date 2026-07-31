@@ -3667,11 +3667,13 @@ td {
   box-shadow: none;
 }
 
-.dtf-remarks-row {
+.dtf-remarks-row,
+.pos-remarks-row {
   padding: 0 1px;
 }
 
-.dtf-remarks-row textarea {
+.dtf-remarks-row textarea,
+.pos-remarks-row textarea {
   min-height: 52px;
   padding: 8px 10px;
 }
@@ -3740,7 +3742,7 @@ td {
 
 .dtf-table th:nth-child(2),
 .dtf-table td:nth-child(2) {
-  width: 20%;
+  width: 21%;
 }
 
 .dtf-table th:nth-child(3),
@@ -3760,27 +3762,22 @@ td {
 
 .dtf-table th:nth-child(6),
 .dtf-table td:nth-child(6) {
-  width: 8%;
+  width: 10%;
 }
 
 .dtf-table th:nth-child(7),
 .dtf-table td:nth-child(7) {
-  width: 10%;
+  width: 14%;
 }
 
 .dtf-table th:nth-child(8),
 .dtf-table td:nth-child(8) {
-  width: 12%;
+  width: 14%;
 }
 
 .dtf-table th:nth-child(9),
 .dtf-table td:nth-child(9) {
-  width: 10%;
-}
-
-.dtf-table th:nth-child(10),
-.dtf-table td:nth-child(10) {
-  width: 6%;
+  width: 7%;
 }
 
 .dtf-table td input {
@@ -4289,14 +4286,14 @@ td {
     margin-right: 0;
   }
 
-  .dtg-billing .billing-table td:nth-child(10) {
+  .dtg-billing .billing-table td:nth-child(9) {
     grid-column: 1 / -1;
     justify-content: flex-end;
     padding-top: 9px;
     border-top: 1px solid var(--border);
   }
 
-  .dtg-billing .billing-table td:nth-child(10)::before {
+  .dtg-billing .billing-table td:nth-child(9)::before {
     margin-right: auto;
   }
 
